@@ -4,7 +4,9 @@
       "Bash(git --version:*)",
       "Bash(gh:*)",
       "Bash(git init:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nInitial commit: LinkedIn Automation System\n\n- FastAPI backend with APScheduler for automated polling\n- Next.js frontend admin dashboard\n- Reply Bot: keyword-triggered comment replies + DM sales funnel\n- Comment Bot: intelligent engagement on watched accounts'' posts\n- Prisma schema for PostgreSQL database\n- Docker and Railway deployment configuration\n\n🤖 Generated with [Claude Code]\\(https://claude.com/claude-code\\)\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(railway:*)"
     ]
   }
 }
