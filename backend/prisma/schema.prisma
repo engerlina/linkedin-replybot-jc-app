@@ -1,0 +1,318 @@
+// backend/prisma/schema.prisma
+
+generator client {
+  provider             = "prisma-client-py"
+  recursive_type_depth = 5
+}
+
+generator client_js {
+  provider = "prisma-client-js"
+  output   = "../../frontend/node_modules/.prisma/client"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// AUTHENTICATION
+// ============================================
+
+model AdminUser {
+  id           String    @id @default(cuid())
+  username     String    @unique
+  passwordHash String
+  createdAt    DateTime  @default(now())
+  lastLoginAt  DateTime?
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  userId    String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+}
+
+// ============================================
+// LINKEDIN ACCOUNTS
+// ============================================
+
+model LinkedInAccount {
+  id             String   @id @default(cuid())
+  name           String
+  profileUrl     String   @unique
+  linkedApiToken String   // LinkedAPI account token
+  isActive       Boolean  @default(true)
+
+  // Voice/Style Settings
+  voiceTone      String   @default("professional") // professional, casual, friendly
+  voiceTopics    String[] // Areas of expertise
+  sampleComments String[] // Example comments for style matching
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  monitoredPosts  MonitoredPost[]
+  watchedAccounts WatchedAccount[]
+  leads           Lead[]
+  activityLogs    ActivityLog[]
+}
+
+// ============================================
+// REPLY BOT
+// ============================================
+
+model MonitoredPost {
+  id        String          @id @default(cuid())
+  accountId String
+  account   LinkedInAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  postUrl   String @unique
+  postTitle String?
+
+  // Trigger Config
+  keywords String[] // e.g., ["BUILD", "WANT", "YES"]
+  isActive Boolean  @default(true)
+
+  // CTA Config
+  ctaType    String // link, lead_magnet, booking
+  ctaValue   String // URL or description
+  ctaMessage String? // Custom message template
+
+  // Reply Config
+  replyStyle String? // Custom instructions for AI
+
+  // Stats
+  totalComments Int @default(0)
+  totalMatches  Int @default(0)
+  totalLeads    Int @default(0)
+
+  lastPolledAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  processedComments ProcessedComment[]
+  leads             Lead[]
+}
+
+model ProcessedComment {
+  id     String        @id @default(cuid())
+  postId String
+  post   MonitoredPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  // Commenter Info
+  commenterUrl      String
+  commenterName     String
+  commenterHeadline String?
+  commentText       String
+  commentTime       String // LinkedIn format: "3d", "1w"
+
+  // Match Info
+  matchedKeyword String?
+  wasMatch       Boolean @default(false)
+
+  // Actions Taken
+  repliedAt DateTime?
+  replyText String?
+
+  createdAt DateTime @default(now())
+
+  @@unique([postId, commenterUrl, commentText])
+  @@index([postId, wasMatch])
+}
+
+// ============================================
+// COMMENT BOT
+// ============================================
+
+model WatchedAccount {
+  id        String          @id @default(cuid())
+  accountId String
+  account   LinkedInAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  // Target Info
+  targetUrl      String
+  targetName     String
+  targetHeadline String?
+
+  // Config
+  isActive       Boolean  @default(true)
+  commentStyle   String? // Custom style instructions
+  topicsToEngage String[] // Topics worth commenting on
+
+  // Timing
+  checkIntervalMins Int       @default(30)
+  lastCheckedAt     DateTime?
+
+  // Stats
+  totalEngagements Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  engagements Engagement[]
+
+  @@unique([accountId, targetUrl])
+}
+
+model Engagement {
+  id               String         @id @default(cuid())
+  watchedAccountId String
+  watchedAccount   WatchedAccount @relation(fields: [watchedAccountId], references: [id], onDelete: Cascade)
+
+  // Post Info
+  postUrl  String
+  postText String?
+  postTime DateTime?
+
+  // Actions
+  reacted      Boolean @default(false)
+  reactionType String?
+  commented    Boolean @default(false)
+  commentText  String?
+
+  engagedAt DateTime @default(now())
+
+  @@unique([watchedAccountId, postUrl])
+}
+
+// ============================================
+// LEADS
+// ============================================
+
+model Lead {
+  id        String          @id @default(cuid())
+  accountId String
+  account   LinkedInAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  postId    String?
+  post      MonitoredPost?  @relation(fields: [postId], references: [id], onDelete: SetNull)
+
+  // Lead Info
+  linkedInUrl String
+  name        String
+  headline    String?
+
+  // Source
+  sourceKeyword String?
+  sourcePostUrl String?
+
+  // Connection Flow
+  connectionStatus String    @default("unknown") // connected, pending, not_connected
+  connectionSentAt DateTime?
+  connectedAt      DateTime?
+
+  // DM Flow
+  dmStatus String    @default("not_sent") // not_sent, queued, sent, replied
+  dmSentAt DateTime?
+  dmText   String?
+
+  // CTA
+  ctaSent   Boolean   @default(false)
+  ctaSentAt DateTime?
+
+  // Notes
+  notes String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([accountId, linkedInUrl])
+  @@index([connectionStatus])
+  @@index([dmStatus])
+}
+
+// ============================================
+// JOB QUEUE (PostgreSQL-based)
+// ============================================
+
+model ScheduledJob {
+  id      String @id @default(cuid())
+  jobType String // poll_comments, check_posts, send_dm, check_connections
+  status  String @default("pending") // pending, running, completed, failed
+
+  // Reference
+  referenceId String? // e.g., postId or watchedAccountId
+
+  // Scheduling
+  runAt       DateTime
+  startedAt   DateTime?
+  completedAt DateTime?
+
+  // Payload
+  payload Json?
+
+  // Error handling
+  attempts    Int     @default(0)
+  maxAttempts Int     @default(3)
+  lastError   String?
+
+  createdAt DateTime @default(now())
+
+  @@index([status, runAt])
+  @@index([jobType, status])
+}
+
+// ============================================
+// RATE LIMITING
+// ============================================
+
+model RateLimit {
+  id         String   @id @default(cuid())
+  accountId  String
+  actionType String // comment, message, connection_request
+  date       DateTime @db.Date
+  count      Int      @default(0)
+
+  @@unique([accountId, actionType, date])
+}
+
+// ============================================
+// ACTIVITY LOGS
+// ============================================
+
+model ActivityLog {
+  id        String           @id @default(cuid())
+  accountId String?
+  account   LinkedInAccount? @relation(fields: [accountId], references: [id], onDelete: SetNull)
+
+  action  String // comment_posted, dm_sent, connection_sent, error
+  status  String // success, failed
+  details Json?
+
+  createdAt DateTime @default(now())
+
+  @@index([accountId, createdAt])
+  @@index([action, createdAt])
+}
+
+// ============================================
+// SETTINGS
+// ============================================
+
+model Settings {
+  id String @id @default("global")
+
+  // Rate Limits
+  maxDailyComments    Int @default(50)
+  maxDailyConnections Int @default(25)
+  maxDailyMessages    Int @default(100)
+
+  // Timing
+  minDelaySeconds Int @default(60)
+  maxDelaySeconds Int @default(300)
+
+  // Scheduler
+  replyBotIntervalMins   Int @default(10)
+  commentBotIntervalMins Int @default(30)
+  connectionCheckMins    Int @default(60)
+
+  // Feature Flags
+  replyBotEnabled   Boolean @default(true)
+  commentBotEnabled Boolean @default(true)
+
+  updatedAt DateTime @updatedAt
+}
