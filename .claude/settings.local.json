@@ -9,7 +9,9 @@
       "Bash(railway:*)",
       "Bash(git commit -m \"$\\(cat <<''EOF''\nFix Railway deployment configuration\n\n- Update Dockerfile to work with monorepo structure\n- Add railway.json for Dockerfile builder configuration\n- Add nixpacks.toml for Python build settings\n\n🤖 Generated with [Claude Code]\\(https://claude.com/claude-code\\)\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
       "Bash(git push)",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "Bash(curl:*)",
+      "Bash(git push:*)"
     ]
   }
 }
