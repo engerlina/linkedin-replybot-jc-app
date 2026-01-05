@@ -12,6 +12,8 @@ export default function ReplyBotPage() {
   const [accounts, setAccounts] = useState<LinkedInAccount[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
+  const [editingPrompt, setEditingPrompt] = useState<string | null>(null);
+  const [promptText, setPromptText] = useState('');
 
   useEffect(() => {
     loadData();
@@ -58,6 +60,21 @@ export default function ReplyBotPage() {
       loadData();
     } catch (err) {
       console.error('Failed to poll', err);
+    }
+  };
+
+  const handleEditPrompt = (post: MonitoredPost) => {
+    setEditingPrompt(post.id);
+    setPromptText(post.replyStyle || '');
+  };
+
+  const handleSavePrompt = async (postId: string) => {
+    try {
+      await api.updateMonitoredPost(postId, { replyStyle: promptText });
+      setEditingPrompt(null);
+      loadData();
+    } catch (err) {
+      console.error('Failed to save prompt', err);
     }
   };
 
@@ -134,7 +151,7 @@ export default function ReplyBotPage() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm mb-4">
                 <div>
                   <span className="text-gray-400">Keywords:</span>
                   <div className="text-white mt-1">
@@ -165,6 +182,53 @@ export default function ReplyBotPage() {
                   </p>
                 </div>
               </div>
+
+              {/* AI Reply Prompt Section */}
+              <div className="border-t border-gray-700 pt-4">
+                <div className="flex justify-between items-center mb-2">
+                  <span className="text-gray-400 text-sm">AI Reply Prompt:</span>
+                  {editingPrompt !== post.id && (
+                    <button
+                      onClick={() => handleEditPrompt(post)}
+                      className="text-blue-400 hover:text-blue-300 text-sm"
+                    >
+                      {post.replyStyle ? 'Edit' : 'Add Prompt'}
+                    </button>
+                  )}
+                </div>
+                {editingPrompt === post.id ? (
+                  <div className="space-y-2">
+                    <textarea
+                      value={promptText}
+                      onChange={(e) => setPromptText(e.target.value)}
+                      className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white text-sm h-24 resize-none"
+                      placeholder="E.g.: 'Be enthusiastic and mention our free consultation. Keep replies under 50 words.'"
+                    />
+                    <div className="flex gap-2 justify-end">
+                      <button
+                        onClick={() => setEditingPrompt(null)}
+                        className="px-3 py-1 bg-gray-600 text-white rounded text-sm"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        onClick={() => handleSavePrompt(post.id)}
+                        className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm"
+                      >
+                        Save
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-white text-sm bg-gray-700 rounded p-3">
+                    {post.replyStyle || (
+                      <span className="text-gray-500 italic">
+                        No custom prompt set. Using default AI behavior.
+                      </span>
+                    )}
+                  </p>
+                )}
+              </div>
             </div>
           ))
         )}
@@ -183,18 +247,23 @@ function AddPostForm({
   onSuccess: () => void;
 }) {
   const [formData, setFormData] = useState({
-    accountId: accounts[0]?.id || '',
+    accountId: '',
     postUrl: '',
     postTitle: '',
     keywords: '',
     ctaType: 'link',
     ctaValue: '',
     ctaMessage: '',
+    replyStyle: '',
   });
   const [submitting, setSubmitting] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!formData.accountId) {
+      alert('Please select a LinkedIn account');
+      return;
+    }
     setSubmitting(true);
     try {
       await api.createMonitoredPost({
@@ -209,9 +278,36 @@ function AddPostForm({
     }
   };
 
+  if (accounts.length === 0) {
+    return (
+      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div className="bg-gray-800 rounded-lg p-6 w-full max-w-md">
+          <h2 className="text-xl font-bold text-white mb-4">No LinkedIn Account</h2>
+          <p className="text-gray-300 mb-4">
+            You need to add a LinkedIn account in Settings before you can monitor posts.
+          </p>
+          <div className="flex gap-2 justify-end">
+            <button
+              onClick={onClose}
+              className="px-4 py-2 bg-gray-600 text-white rounded"
+            >
+              Close
+            </button>
+            <a
+              href="/dashboard/settings"
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded"
+            >
+              Go to Settings
+            </a>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-gray-800 rounded-lg p-6 w-full max-w-md">
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 overflow-y-auto py-8">
+      <div className="bg-gray-800 rounded-lg p-6 w-full max-w-lg mx-4">
         <h2 className="text-xl font-bold text-white mb-4">Add Monitored Post</h2>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
@@ -222,9 +318,10 @@ function AddPostForm({
               className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white"
               required
             >
+              <option value="">Select an account...</option>
               {accounts.map((acc) => (
                 <option key={acc.id} value={acc.id}>
-                  {acc.name}
+                  {acc.name} {acc.isActive ? '' : '(Inactive)'}
                 </option>
               ))}
             </select>
@@ -283,6 +380,21 @@ function AddPostForm({
               placeholder="URL or description"
               required
             />
+          </div>
+          <div>
+            <label className="block text-gray-300 mb-1">
+              AI Reply Prompt
+              <span className="text-gray-500 text-sm ml-2">(Optional)</span>
+            </label>
+            <textarea
+              value={formData.replyStyle}
+              onChange={(e) => setFormData({ ...formData, replyStyle: e.target.value })}
+              className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white h-24 resize-none"
+              placeholder="Custom instructions for how the AI should reply to comments. E.g.: 'Be enthusiastic and mention that we offer a free consultation. Keep replies under 50 words.'"
+            />
+            <p className="text-gray-500 text-xs mt-1">
+              Guide the AI on tone, style, and what to include in replies
+            </p>
           </div>
           <div className="flex gap-2 justify-end">
             <button
