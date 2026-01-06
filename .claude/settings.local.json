@@ -15,7 +15,9 @@
       "Bash(timeout 30 railway logs:*)",
       "Bash(timeout 60 railway logs:*)",
       "Bash(cat:*)",
-      "Bash(npx prisma migrate dev:*)"
+      "Bash(npx prisma migrate dev:*)",
+      "Bash(python -c \"\nimport httpx\nimport asyncio\n\nasync def main\\(\\):\n    async with httpx.AsyncClient\\(\\) as client:\n        # Login\n        resp = await client.post\\(\n            ''https://linkedin-replybot-jc-app-production.up.railway.app/api/auth/login'',\n            json={''password'': ''5Hot5seeme!''}\n        \\)\n        token = resp.json\\(\\)[''token'']\n        print\\(f''Token: {token[:20]}...''\\)\n        \n        # Get accounts\n        resp = await client.get\\(\n            ''https://linkedin-replybot-jc-app-production.up.railway.app/api/accounts'',\n            headers={''Authorization'': f''Bearer {token}''}\n        \\)\n        print\\(resp.json\\(\\)\\)\n\nasyncio.run\\(main\\(\\)\\)\n\")",
+      "Bash(python test_linkedapi.py:*)"
     ]
   }
 }

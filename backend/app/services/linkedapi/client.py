@@ -49,18 +49,19 @@ class LinkedAPIClient:
     async def execute(self, workflow: dict | list) -> dict:
         """Execute a LinkedAPI workflow and wait for completion"""
         async with httpx.AsyncClient(timeout=120.0) as client:
-            # Start workflow
+            # Start workflow - send workflow directly (not wrapped)
             response = await client.post(
                 f"{self.BASE_URL}/workflows",
                 headers=self.headers,
-                json={
-                    "workflow": workflow
-                }
+                json=workflow
             )
             response.raise_for_status()
             data = response.json()
 
-            workflow_id = data["workflowId"]
+            # workflowId is in result.workflowId
+            workflow_id = data.get("result", {}).get("workflowId") or data.get("workflowId")
+            if not workflow_id:
+                raise LinkedAPIError(f"No workflow ID in response: {data}")
 
             # Poll for completion
             for _ in range(60):  # Max 2 minutes
@@ -72,10 +73,15 @@ class LinkedAPIClient:
                 )
                 status_data = status_response.json()
 
-                if status_data["status"] == "completed":
-                    return status_data.get("completion", {})
-                elif status_data["status"] == "failed":
-                    raise LinkedAPIError(status_data.get("error", "Workflow failed"))
+                # Status is in result.workflowStatus
+                result = status_data.get("result", {})
+                status = result.get("workflowStatus", status_data.get("status"))
+
+                if status == "completed":
+                    return result.get("completion", {})
+                elif status == "failed":
+                    error = result.get("error") or status_data.get("error", "Workflow failed")
+                    raise LinkedAPIError(error)
 
             raise LinkedAPIError("Workflow timeout")
 
