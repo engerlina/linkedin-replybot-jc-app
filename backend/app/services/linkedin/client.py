@@ -199,11 +199,37 @@ class LinkedInDirectClient:
         """
         Extract public identifier from profile URL.
 
-        Handles: https://www.linkedin.com/in/john-doe/
+        Handles:
+        - https://www.linkedin.com/in/john-doe/
+        - https://linkedin.com/in/john-doe
+        - www.linkedin.com/in/john-doe
+        - /in/john-doe
+        - john-doe (just username)
         """
-        match = re.search(r'linkedin\.com/in/([^/\?]+)', profile_url)
+        if not profile_url:
+            raise LinkedInAPIError("Profile URL is empty")
+
+        profile_url = profile_url.strip()
+
+        # Try full URL format
+        match = re.search(r'linkedin\.com/in/([^/\?\s]+)', profile_url)
         if match:
             return match.group(1)
+
+        # Try /in/username format
+        match = re.search(r'^/in/([^/\?\s]+)', profile_url)
+        if match:
+            return match.group(1)
+
+        # Try in/username format (without leading slash)
+        match = re.search(r'^in/([^/\?\s]+)', profile_url)
+        if match:
+            return match.group(1)
+
+        # If it looks like a plain username (alphanumeric with hyphens), use it directly
+        if re.match(r'^[a-zA-Z0-9\-]+$', profile_url):
+            return profile_url
+
         raise LinkedInAPIError(f"Could not extract public ID from URL: {profile_url}")
 
     # ==========================================

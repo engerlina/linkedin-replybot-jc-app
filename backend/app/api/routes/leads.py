@@ -89,6 +89,13 @@ async def check_lead_connection(lead_id: str, _=Depends(get_current_user)):
             detail="LinkedIn cookies not synced or expired. Please sync from Chrome extension."
         )
 
+    # Validate LinkedIn URL
+    if not lead.linkedInUrl or not lead.linkedInUrl.strip():
+        raise HTTPException(
+            status_code=400,
+            detail="Lead has no LinkedIn URL. Cannot check connection status."
+        )
+
     try:
         client = await LinkedInDirectClient.create(lead.account.id)
         status = await client.check_connection(lead.linkedInUrl)
@@ -140,6 +147,13 @@ async def send_connection_request(lead_id: str, _=Depends(get_current_user)):
 
     if lead.connectionStatus == "connected":
         raise HTTPException(status_code=400, detail="Already connected to this lead")
+
+    # Validate LinkedIn URL
+    if not lead.linkedInUrl or not lead.linkedInUrl.strip():
+        raise HTTPException(
+            status_code=400,
+            detail="Lead has no LinkedIn URL. Cannot send connection request."
+        )
 
     try:
         client = await LinkedInDirectClient.create(lead.account.id)
@@ -197,6 +211,13 @@ async def send_dm_to_lead_manual(lead_id: str, _=Depends(get_current_user)):
 
     if lead.connectionStatus != "connected":
         raise HTTPException(status_code=400, detail=f"Cannot DM - lead is {lead.connectionStatus}, not connected")
+
+    # Validate LinkedIn URL
+    if not lead.linkedInUrl or not lead.linkedInUrl.strip():
+        raise HTTPException(
+            status_code=400,
+            detail="Lead has no LinkedIn URL. Cannot send DM."
+        )
 
     # Get message from pending DM first
     pending_dm = await prisma.pendingdm.find_first(
