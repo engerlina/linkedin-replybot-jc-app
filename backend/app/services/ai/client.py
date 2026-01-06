@@ -201,6 +201,61 @@ If no comments match, respond with: NO_MATCHES"""
         return []
 
 
+async def generate_dm_from_settings(
+    lead_name: str,
+    lead_headline: str,
+    source_keyword: str = None,
+    source_post_title: str = None,
+    user_context: str = None,
+    ai_prompt: str = None
+) -> str:
+    """Generate a personalized DM using settings-based AI prompt"""
+
+    first_name = lead_name.split()[0] if lead_name else "there"
+
+    # Build context for the AI
+    lead_context = f"""LEAD INFORMATION:
+- Name: {lead_name} (first name: {first_name})
+- Headline: {lead_headline or 'Not available'}
+- How they found you: {f'Commented with keyword "{source_keyword}"' if source_keyword else 'Engaged with your content'}
+- Post they engaged with: {source_post_title or 'Your LinkedIn post'}"""
+
+    if ai_prompt:
+        # Use custom instructions from settings
+        prompt = f"""{ai_prompt}
+
+---
+{lead_context}
+
+{f"ABOUT YOU/YOUR BUSINESS:{chr(10)}{user_context}" if user_context else ""}
+
+Now generate the DM. Write only the message text, nothing else."""
+    else:
+        # Default prompt if none configured
+        prompt = f"""Write a friendly, personalized LinkedIn DM.
+
+{lead_context}
+
+{f"ABOUT THE SENDER:{chr(10)}{user_context}" if user_context else ""}
+
+Guidelines:
+1. Keep it short (2-3 sentences)
+2. Be warm and genuine, not salesy
+3. Reference why you're reaching out (they engaged with your content)
+4. End with a soft call-to-action or question
+5. Use their first name naturally
+
+Write only the message text, nothing else."""
+
+    response = await get_client().messages.create(
+        model="claude-sonnet-4-20250514",
+        max_tokens=300,
+        messages=[{"role": "user", "content": prompt}]
+    )
+
+    return response.content[0].text.strip()
+
+
 async def generate_insightful_comment(
     post_content: str,
     author_name: str,

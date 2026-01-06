@@ -155,9 +155,10 @@ async def send_connection_request(lead_id: str, _=Depends(get_current_user)):
 
 @router.post("/{lead_id}/send-dm")
 async def send_dm_to_lead_manual(lead_id: str, _=Depends(get_current_user)):
-    """Manually send DM to a connected lead"""
+    """Manually send DM to a connected lead - uses AI to generate personalized message"""
     from datetime import datetime
     from app.services.linkedapi.client import LinkedAPIClient
+    from app.services.ai.client import generate_dm_from_settings
 
     lead = await prisma.lead.find_unique(
         where={"id": lead_id},
@@ -172,28 +173,48 @@ async def send_dm_to_lead_manual(lead_id: str, _=Depends(get_current_user)):
     if lead.connectionStatus != "connected":
         raise HTTPException(status_code=400, detail=f"Cannot DM - lead is {lead.connectionStatus}, not connected")
 
-    # Get message from pending DM or post CTA
+    # Get message from pending DM first
     pending_dm = await prisma.pendingdm.find_first(
         where={"leadId": lead_id, "status": "pending"}
     )
 
     message = None
     if pending_dm:
+        # Use existing pending DM
         message = pending_dm.editedText or pending_dm.message
-    elif lead.post and lead.post.ctaMessage:
-        message = lead.post.ctaMessage
     else:
-        # Get default template
+        # Generate AI message or use template
         settings = await prisma.settings.find_first(where={"id": "global"})
-        if settings and settings.defaultDmTemplate:
+
+        if settings and (settings.dmAiPrompt or settings.dmUserContext):
+            # Use AI to generate personalized DM
+            try:
+                message = await generate_dm_from_settings(
+                    lead_name=lead.name,
+                    lead_headline=lead.headline,
+                    source_keyword=lead.sourceKeyword,
+                    source_post_title=lead.post.postTitle if lead.post else None,
+                    user_context=settings.dmUserContext,
+                    ai_prompt=settings.dmAiPrompt
+                )
+            except Exception as e:
+                # Fall back to template if AI fails
+                import logging
+                logging.getLogger(__name__).warning(f"AI DM generation failed: {e}")
+                if settings.defaultDmTemplate:
+                    message = settings.defaultDmTemplate
+        elif settings and settings.defaultDmTemplate:
+            # Fall back to static template
             message = settings.defaultDmTemplate
+            # Replace {name} placeholder
+            first_name = lead.name.split()[0] if lead.name else "there"
+            message = message.replace("{name}", first_name)
 
     if not message:
-        raise HTTPException(status_code=400, detail="No DM message configured")
-
-    # Replace {name} placeholder with lead's first name
-    first_name = lead.name.split()[0] if lead.name else "there"
-    message = message.replace("{name}", first_name)
+        raise HTTPException(
+            status_code=400,
+            detail="No DM configuration found. Please set up AI DM settings in Settings > AI DM Generation."
+        )
 
     try:
         client = await LinkedAPIClient.create(lead.account.identificationToken)
@@ -223,8 +244,10 @@ async def send_dm_to_lead_manual(lead_id: str, _=Depends(get_current_user)):
             }
         else:
             raise HTTPException(status_code=500, detail="Failed to send DM")
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=502, detail=f"LinkedAPI error: {str(e)}")
+        raise HTTPException(status_code=502, detail=f"Error: {str(e)}")
 
 
 @router.post("/{lead_id}/mark-sent")

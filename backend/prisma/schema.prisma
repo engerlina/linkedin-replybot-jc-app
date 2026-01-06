@@ -396,8 +396,10 @@ model Settings {
   replyBotEnabled   Boolean @default(true)
   commentBotEnabled Boolean @default(true)
 
-  // DM Templates
-  defaultDmTemplate String? // Default DM message for new leads
+  // DM Configuration
+  defaultDmTemplate String? // Fallback static DM message (deprecated)
+  dmAiPrompt        String? // AI prompt for generating personalized DMs
+  dmUserContext     String? // Context about the user/business for AI DM generation
 
   updatedAt DateTime @updatedAt
 }

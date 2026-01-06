@@ -213,24 +213,39 @@ export default function SettingsPage() {
           </div>
         )}
 
-        {/* DM Templates */}
+        {/* AI DM Generation */}
         {settings && (
           <div className="bg-gray-800 rounded-lg p-6">
-            <h2 className="text-lg font-semibold text-white mb-4">DM Templates</h2>
-            <div>
-              <label className="block text-gray-300 mb-1">Default DM Message</label>
-              <textarea
-                value={settings.defaultDmTemplate || ''}
-                onChange={(e) =>
-                  setSettings({ ...settings, defaultDmTemplate: e.target.value })
-                }
-                className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white h-32"
-                placeholder="Hi {name}! Thanks for engaging with my post. I'd love to share more about..."
-              />
-              <p className="text-gray-500 text-xs mt-1">
-                This message will be sent to leads when you trigger the DM flow.
-                Use {'{name}'} to insert the lead&apos;s first name.
-              </p>
+            <h2 className="text-lg font-semibold text-white mb-4">AI DM Generation</h2>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-gray-300 mb-1">About You / Your Business</label>
+                <textarea
+                  value={settings.dmUserContext || ''}
+                  onChange={(e) =>
+                    setSettings({ ...settings, dmUserContext: e.target.value })
+                  }
+                  className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white h-24"
+                  placeholder="I'm a startup founder helping entrepreneurs scale their SaaS businesses. I offer consulting services and have a free course on product-led growth..."
+                />
+                <p className="text-gray-500 text-xs mt-1">
+                  Context about you and your business that the AI will use to craft personalized DMs.
+                </p>
+              </div>
+              <div>
+                <label className="block text-gray-300 mb-1">DM Generation Instructions</label>
+                <textarea
+                  value={settings.dmAiPrompt || ''}
+                  onChange={(e) =>
+                    setSettings({ ...settings, dmAiPrompt: e.target.value })
+                  }
+                  className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white h-32"
+                  placeholder="Write a friendly, personalized DM to start a conversation. Mention their comment if relevant. Keep it short (2-3 sentences). End with a soft call-to-action like asking if they'd be open to chatting..."
+                />
+                <p className="text-gray-500 text-xs mt-1">
+                  Instructions for how the AI should write DMs. The AI will have access to the lead&apos;s name, headline, and the post they commented on.
+                </p>
+              </div>
             </div>
           </div>
         )}

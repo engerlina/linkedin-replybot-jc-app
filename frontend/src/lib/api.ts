@@ -481,7 +481,9 @@ export interface Settings {
   connectionCheckMins: number;
   replyBotEnabled: boolean;
   commentBotEnabled: boolean;
-  defaultDmTemplate: string | null;  // Default DM message for leads
+  defaultDmTemplate: string | null;  // Fallback static DM message
+  dmAiPrompt: string | null;  // AI prompt for generating DMs
+  dmUserContext: string | null;  // User context for AI DM generation
   updatedAt: string;
 }
 
