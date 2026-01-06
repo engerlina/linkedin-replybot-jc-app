@@ -42,8 +42,8 @@ model Session {
 model LinkedInAccount {
   id             String   @id @default(cuid())
   name           String
-  profileUrl     String   @unique
-  linkedApiToken String   // LinkedAPI account token
+  profileUrl     String?  // Optional - can be fetched from LinkedAPI
+  linkedApiToken String   @unique // LinkedAPI account token (unique per account)
   isActive       Boolean  @default(true)
 
   // Voice/Style Settings

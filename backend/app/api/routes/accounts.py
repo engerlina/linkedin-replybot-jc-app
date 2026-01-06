@@ -10,8 +10,8 @@ router = APIRouter()
 
 class CreateAccountRequest(BaseModel):
     name: str
-    profileUrl: str
     linkedApiToken: str
+    profileUrl: Optional[str] = None
     voiceTone: str = "professional"
     voiceTopics: List[str] = []
     sampleComments: List[str] = []
@@ -46,18 +46,18 @@ async def get_account(account_id: str, _=Depends(get_current_user)):
 
 @router.post("")
 async def create_account(req: CreateAccountRequest, _=Depends(get_current_user)):
-    # Check if profile URL already exists
+    # Check if LinkedAPI token already exists
     existing = await prisma.linkedinaccount.find_first(
-        where={"profileUrl": req.profileUrl}
+        where={"linkedApiToken": req.linkedApiToken}
     )
     if existing:
-        raise HTTPException(status_code=400, detail="Account with this profile URL already exists")
+        raise HTTPException(status_code=400, detail="Account with this LinkedAPI token already exists")
 
     account = await prisma.linkedinaccount.create(
         data={
             "name": req.name,
-            "profileUrl": req.profileUrl,
             "linkedApiToken": req.linkedApiToken,
+            "profileUrl": req.profileUrl,
             "voiceTone": req.voiceTone,
             "voiceTopics": req.voiceTopics,
             "sampleComments": req.sampleComments

@@ -97,7 +97,9 @@ export default function SettingsPage() {
                 >
                   <div>
                     <p className="text-white font-medium">{account.name}</p>
-                    <p className="text-gray-400 text-sm">{account.profileUrl}</p>
+                    <p className="text-gray-400 text-sm">
+                      LinkedAPI: ****{account.linkedApiToken?.slice(-4) || '****'}
+                    </p>
                   </div>
                   <div className="flex items-center gap-2">
                     <span
@@ -238,20 +240,21 @@ function AddAccountForm({
 }) {
   const [formData, setFormData] = useState({
     name: '',
-    profileUrl: '',
     linkedApiToken: '',
-    voiceTone: 'professional',
   });
   const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState('');
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSubmitting(true);
+    setError('');
     try {
       await api.createAccount(formData);
       onSuccess();
     } catch (err) {
       console.error('Failed to create account', err);
+      setError(err instanceof Error ? err.message : 'Failed to add account');
     } finally {
       setSubmitting(false);
     }
@@ -263,7 +266,7 @@ function AddAccountForm({
         <h2 className="text-xl font-bold text-white mb-4">Add LinkedIn Account</h2>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-gray-300 mb-1">Display Name</label>
+            <label className="block text-gray-300 mb-1">Account Name</label>
             <input
               type="text"
               value={formData.name}
@@ -272,41 +275,33 @@ function AddAccountForm({
               placeholder="My LinkedIn Account"
               required
             />
+            <p className="text-gray-500 text-xs mt-1">A friendly name to identify this account</p>
           </div>
           <div>
-            <label className="block text-gray-300 mb-1">Profile URL</label>
-            <input
-              type="url"
-              value={formData.profileUrl}
-              onChange={(e) => setFormData({ ...formData, profileUrl: e.target.value })}
-              className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white"
-              placeholder="https://linkedin.com/in/..."
-              required
-            />
-          </div>
-          <div>
-            <label className="block text-gray-300 mb-1">LinkedAPI Token</label>
+            <label className="block text-gray-300 mb-1">LinkedAPI API Key</label>
             <input
               type="password"
               value={formData.linkedApiToken}
               onChange={(e) => setFormData({ ...formData, linkedApiToken: e.target.value })}
               className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white"
-              placeholder="Your LinkedAPI account token"
+              placeholder="Your LinkedAPI API key"
               required
             />
+            <p className="text-gray-500 text-xs mt-1">
+              Get your API key from{' '}
+              <a
+                href="https://linkedapi.io"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-blue-400 hover:underline"
+              >
+                linkedapi.io
+              </a>
+            </p>
           </div>
-          <div>
-            <label className="block text-gray-300 mb-1">Voice Tone</label>
-            <select
-              value={formData.voiceTone}
-              onChange={(e) => setFormData({ ...formData, voiceTone: e.target.value })}
-              className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white"
-            >
-              <option value="professional">Professional</option>
-              <option value="casual">Casual</option>
-              <option value="friendly">Friendly</option>
-            </select>
-          </div>
+          {error && (
+            <p className="text-red-400 text-sm">{error}</p>
+          )}
           <div className="flex gap-2 justify-end">
             <button
               type="button"
