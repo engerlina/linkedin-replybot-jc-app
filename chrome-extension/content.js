@@ -917,11 +917,13 @@
           <span>📋 DM Templates</span>
         </div>
         <div class="dm-sidebar-header-btns">
+          <button class="dm-sidebar-btn dm-sidebar-refresh" title="Refresh recipient name">↻</button>
           <button class="dm-sidebar-btn dm-sidebar-minimize" title="Minimize">−</button>
         </div>
       </div>
       <div class="dm-sidebar-recipient" id="dm-sidebar-recipient">
         Recipient: <strong id="dm-recipient-name">detecting...</strong>
+        <span id="dm-recipient-refresh" style="margin-left: 6px; cursor: pointer; opacity: 0.7;" title="Click to refresh">↻</span>
       </div>
       <div class="dm-sidebar-content" id="dm-sidebar-messages"></div>
       <div class="dm-sidebar-footer">
@@ -931,10 +933,22 @@
 
     document.body.appendChild(sidebar);
 
+    // Refresh button in header
+    sidebar.querySelector('.dm-sidebar-refresh').addEventListener('click', (e) => {
+      e.stopPropagation();
+      refreshRecipientName();
+    });
+
     // Minimize button
     sidebar.querySelector('.dm-sidebar-minimize').addEventListener('click', (e) => {
       e.stopPropagation();
       toggleDmSidebarMinimize();
+    });
+
+    // Refresh button next to recipient name
+    sidebar.querySelector('#dm-recipient-refresh').addEventListener('click', (e) => {
+      e.stopPropagation();
+      refreshRecipientName();
     });
 
     // Click header to expand when minimized
@@ -944,7 +958,97 @@
       }
     });
 
+    // Watch for conversation changes (when user switches to a different message thread)
+    setupConversationObserver();
+
     return sidebar;
+  }
+
+  // Refresh recipient name and update hints
+  function refreshRecipientName() {
+    const recipientName = getMessagingRecipientName();
+    const recipientEl = document.getElementById('dm-recipient-name');
+    const refreshIcon = document.getElementById('dm-recipient-refresh');
+
+    if (recipientEl) {
+      recipientEl.textContent = recipientName || '(not detected)';
+    }
+
+    // Visual feedback on refresh
+    if (refreshIcon) {
+      refreshIcon.style.transform = 'rotate(360deg)';
+      refreshIcon.style.transition = 'transform 0.3s';
+      setTimeout(() => {
+        refreshIcon.style.transform = '';
+      }, 300);
+    }
+
+    // Update hints in all template items
+    const hints = document.querySelectorAll('.dm-sidebar-hint');
+    hints.forEach(hint => {
+      hint.textContent = '{name} = ' + (recipientName || 'recipient');
+    });
+
+    console.log('[LinkedIn Reply Bot] Refreshed recipient name:', recipientName);
+  }
+
+  // Watch for conversation changes to auto-detect new recipient
+  let conversationObserver = null;
+  let lastConversationUrl = '';
+
+  function setupConversationObserver() {
+    if (conversationObserver) return;
+
+    // Watch for URL changes (conversation switches)
+    const checkConversationChange = () => {
+      const currentUrl = window.location.href;
+      if (currentUrl !== lastConversationUrl && currentUrl.includes('/messaging')) {
+        lastConversationUrl = currentUrl;
+        // Delay to let LinkedIn render the new conversation
+        setTimeout(() => {
+          refreshRecipientName();
+        }, 500);
+      }
+    };
+
+    // Watch for DOM changes in messaging area
+    conversationObserver = new MutationObserver((mutations) => {
+      // Check if conversation header changed
+      for (const mutation of mutations) {
+        if (mutation.type === 'childList' || mutation.type === 'characterData') {
+          const target = mutation.target;
+          // Look for changes in conversation title areas
+          if (target.closest && (
+            target.closest('.msg-thread') ||
+            target.closest('.msg-overlay-conversation-bubble') ||
+            target.closest('.msg-entity-lockup')
+          )) {
+            // Debounce the refresh
+            clearTimeout(conversationObserver.refreshTimeout);
+            conversationObserver.refreshTimeout = setTimeout(() => {
+              refreshRecipientName();
+            }, 300);
+            break;
+          }
+        }
+      }
+    });
+
+    // Start observing
+    const messagingContainer = document.querySelector('.msg-thread') ||
+                               document.querySelector('.msg-overlay-list-bubble') ||
+                               document.querySelector('.scaffold-layout__main');
+
+    if (messagingContainer) {
+      conversationObserver.observe(messagingContainer, {
+        childList: true,
+        subtree: true,
+        characterData: true
+      });
+    }
+
+    // Also check URL periodically for conversation switches
+    setInterval(checkConversationChange, 1000);
   }
 
   // Toggle minimize state
@@ -1184,14 +1288,12 @@
     }
   }
 
-  // Periodically refresh recipient name (in case conversation changes)
+  // Periodically refresh recipient name as fallback (in case observer misses changes)
   setInterval(() => {
-    const recipientEl = document.getElementById('dm-recipient-name');
-    if (recipientEl && dmSidebarVisible && !dmSidebarMinimized) {
-      const recipientName = getMessagingRecipientName();
-      recipientEl.textContent = recipientName || '(not detected)';
+    if (dmSidebarVisible && !dmSidebarMinimized) {
+      refreshRecipientName();
     }
-  }, 2000);
+  }, 5000);
 
   // Escape HTML helper
   function escapeHtml(text) {
