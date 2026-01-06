@@ -95,9 +95,12 @@ async def get_settings(_=Depends(get_current_user)):
 
 @router.patch("/settings")
 async def update_settings(data: dict, _=Depends(get_current_user)):
+    # Prisma Python uses 'data' dict with nested 'create' and 'update'
     settings = await prisma.settings.upsert(
         where={"id": "global"},
-        create={"id": "global", **data},
-        update=data
+        data={
+            "create": {"id": "global", **data},
+            "update": data
+        }
     )
     return settings
