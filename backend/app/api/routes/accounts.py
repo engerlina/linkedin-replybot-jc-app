@@ -10,7 +10,7 @@ router = APIRouter()
 
 class CreateAccountRequest(BaseModel):
     name: str
-    linkedApiToken: str
+    identificationToken: str  # LinkedAPI identification-token (per LinkedIn account)
     profileUrl: Optional[str] = None
     voiceTone: str = "professional"
     voiceTopics: List[str] = []
@@ -19,7 +19,7 @@ class CreateAccountRequest(BaseModel):
 
 class UpdateAccountRequest(BaseModel):
     name: Optional[str] = None
-    linkedApiToken: Optional[str] = None
+    identificationToken: Optional[str] = None  # LinkedAPI identification-token
     isActive: Optional[bool] = None
     voiceTone: Optional[str] = None
     voiceTopics: Optional[List[str]] = None
@@ -46,17 +46,17 @@ async def get_account(account_id: str, _=Depends(get_current_user)):
 
 @router.post("")
 async def create_account(req: CreateAccountRequest, _=Depends(get_current_user)):
-    # Check if LinkedAPI token already exists
+    # Check if identification token already exists
     existing = await prisma.linkedinaccount.find_first(
-        where={"linkedApiToken": req.linkedApiToken}
+        where={"identificationToken": req.identificationToken}
     )
     if existing:
-        raise HTTPException(status_code=400, detail="Account with this LinkedAPI token already exists")
+        raise HTTPException(status_code=400, detail="Account with this identification token already exists")
 
     account = await prisma.linkedinaccount.create(
         data={
             "name": req.name,
-            "linkedApiToken": req.linkedApiToken,
+            "identificationToken": req.identificationToken,
             "profileUrl": req.profileUrl,
             "voiceTone": req.voiceTone,
             "voiceTopics": req.voiceTopics,

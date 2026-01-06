@@ -12,8 +12,8 @@ class Settings(BaseSettings):
     JWT_SECRET: str = "dev-secret-change-me"
     FRONTEND_URL: str = "http://localhost:3000"
 
-    # Legacy - no longer used, each account has its own API key
-    LINKEDAPI_API_KEY: Optional[str] = None
+    # LinkedAPI main API key (linked-api-token header)
+    LINKEDAPI_API_KEY: str = ""
 
     class Config:
         env_file = ".env"
@@ -27,6 +27,8 @@ class Settings(BaseSettings):
             missing.append("ANTHROPIC_API_KEY")
         if not self.ADMIN_PASSWORD:
             missing.append("ADMIN_PASSWORD")
+        if not self.LINKEDAPI_API_KEY:
+            missing.append("LINKEDAPI_API_KEY")
         return missing
 
     def get_cors_origins(self) -> list[str]:

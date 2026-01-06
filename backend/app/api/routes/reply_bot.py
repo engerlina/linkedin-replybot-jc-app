@@ -1,10 +1,16 @@
 from typing import List, Optional
+import logging
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
+import httpx
 
 from app.api.routes.auth import get_current_user
 from app.db.client import prisma
+from app.config import settings
 from app.services.reply_bot.poller import poll_single_post
+from app.services.linkedapi.client import LinkedAPIError
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -88,6 +94,13 @@ async def delete_post(post_id: str, _=Depends(get_current_user)):
 @router.post("/posts/{post_id}/poll")
 async def trigger_poll(post_id: str, _=Depends(get_current_user)):
     """Manually trigger polling for a specific post"""
+    # Check if LINKEDAPI_API_KEY is configured
+    if not settings.LINKEDAPI_API_KEY:
+        raise HTTPException(
+            status_code=503,
+            detail="LinkedAPI API key not configured. Please set LINKEDAPI_API_KEY in environment variables."
+        )
+
     post = await prisma.monitoredpost.find_unique(
         where={"id": post_id},
         include={"account": True}
@@ -95,8 +108,32 @@ async def trigger_poll(post_id: str, _=Depends(get_current_user)):
     if not post:
         raise HTTPException(status_code=404, detail="Post not found")
 
-    result = await poll_single_post(post)
-    return result
+    if not post.account.identificationToken:
+        raise HTTPException(
+            status_code=400,
+            detail="Account missing identification token. Please update the account settings."
+        )
+
+    try:
+        result = await poll_single_post(post)
+        return result
+    except httpx.HTTPStatusError as e:
+        logger.error(f"LinkedAPI error for post {post_id}: {e}")
+        if e.response.status_code == 401:
+            raise HTTPException(
+                status_code=401,
+                detail="LinkedAPI authentication failed. Check your API key and identification token."
+            )
+        raise HTTPException(
+            status_code=502,
+            detail=f"LinkedAPI error: {e.response.status_code}"
+        )
+    except LinkedAPIError as e:
+        logger.error(f"LinkedAPI workflow error for post {post_id}: {e}")
+        raise HTTPException(status_code=502, detail=str(e))
+    except Exception as e:
+        logger.error(f"Unexpected error polling post {post_id}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to poll post. Check logs for details.")
 
 
 @router.get("/posts/{post_id}/comments")

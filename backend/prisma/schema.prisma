@@ -38,11 +38,11 @@ model Session {
 // ============================================
 
 model LinkedInAccount {
-  id             String   @id @default(cuid())
-  name           String
-  profileUrl     String?  // Optional - can be fetched from LinkedAPI
-  linkedApiToken String   @unique // LinkedAPI account token (unique per account)
-  isActive       Boolean  @default(true)
+  id                  String   @id @default(cuid())
+  name                String
+  profileUrl          String?  // Optional - can be fetched from LinkedAPI
+  identificationToken String   @unique // LinkedAPI identification token (unique per LinkedIn account)
+  isActive            Boolean  @default(true)
 
   // Voice/Style Settings
   voiceTone      String   @default("professional") // professional, casual, friendly
@@ -82,6 +82,7 @@ model MonitoredPost {
 
   // Reply Config
   replyStyle String? // Custom instructions for AI
+  autoReply  Boolean @default(false) // If false, replies go to queue for review
 
   // Stats
   totalComments Int @default(0)
@@ -95,6 +96,7 @@ model MonitoredPost {
 
   processedComments ProcessedComment[]
   leads             Lead[]
+  pendingReplies    PendingReply[]
 }
 
 model ProcessedComment {
@@ -139,6 +141,7 @@ model WatchedAccount {
 
   // Config
   isActive       Boolean  @default(true)
+  autoComment    Boolean  @default(false) // If false, comments go to queue for review
   commentStyle   String? // Custom style instructions
   topicsToEngage String[] // Topics worth commenting on
 
@@ -152,7 +155,8 @@ model WatchedAccount {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  engagements Engagement[]
+  engagements     Engagement[]
+  pendingComments PendingComment[]
 
   @@unique([accountId, targetUrl])
 }
@@ -176,6 +180,61 @@ model Engagement {
   engagedAt DateTime @default(now())
 
   @@unique([watchedAccountId, postUrl])
+}
+
+// ============================================
+// REVIEW QUEUES
+// ============================================
+
+model PendingReply {
+  id     String        @id @default(cuid())
+  postId String
+  post   MonitoredPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  // Original comment info
+  commenterUrl      String
+  commenterName     String
+  commenterHeadline String?
+  commentText       String
+  matchedKeyword    String?
+
+  // Generated reply
+  generatedReply String
+
+  // Review status
+  status     String    @default("pending") // pending, approved, rejected, sent
+  editedText String? // If user edited the reply
+  reviewedAt DateTime?
+  sentAt     DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([status])
+  @@index([postId, status])
+}
+
+model PendingComment {
+  id               String         @id @default(cuid())
+  watchedAccountId String
+  watchedAccount   WatchedAccount @relation(fields: [watchedAccountId], references: [id], onDelete: Cascade)
+
+  // Target post info
+  postUrl  String
+  postText String?
+
+  // Generated comment
+  generatedComment String
+
+  // Review status
+  status     String    @default("pending") // pending, approved, rejected, sent
+  editedText String? // If user edited the comment
+  reviewedAt DateTime?
+  sentAt     DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([status])
+  @@index([watchedAccountId, status])
 }
 
 // ============================================

@@ -98,7 +98,7 @@ export default function SettingsPage() {
                   <div>
                     <p className="text-white font-medium">{account.name}</p>
                     <p className="text-gray-400 text-sm">
-                      LinkedAPI: ****{account.linkedApiToken?.slice(-4) || '****'}
+                      Token: ****{account.identificationToken?.slice(-4) || '****'}
                     </p>
                   </div>
                   <div className="flex items-center gap-2">
@@ -240,7 +240,7 @@ function AddAccountForm({
 }) {
   const [formData, setFormData] = useState({
     name: '',
-    linkedApiToken: '',
+    identificationToken: '',
   });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
@@ -278,19 +278,19 @@ function AddAccountForm({
             <p className="text-gray-500 text-xs mt-1">A friendly name to identify this account</p>
           </div>
           <div>
-            <label className="block text-gray-300 mb-1">LinkedAPI API Key</label>
+            <label className="block text-gray-300 mb-1">Identification Token</label>
             <input
               type="password"
-              value={formData.linkedApiToken}
-              onChange={(e) => setFormData({ ...formData, linkedApiToken: e.target.value })}
+              value={formData.identificationToken}
+              onChange={(e) => setFormData({ ...formData, identificationToken: e.target.value })}
               className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white"
-              placeholder="Your LinkedAPI API key"
+              placeholder="Your LinkedAPI identification token"
               required
             />
             <p className="text-gray-500 text-xs mt-1">
-              Get your API key from{' '}
+              Get your identification token from{' '}
               <a
-                href="https://linkedapi.io"
+                href="https://app.linkedapi.io"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-blue-400 hover:underline"

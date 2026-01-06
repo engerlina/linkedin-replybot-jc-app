@@ -8,7 +8,7 @@ from app.utils.humanizer import random_delay
 
 async def check_and_engage(target):
     """Check a watched account for new posts and engage"""
-    client = LinkedAPIClient(target.account.linkedApiToken)
+    client = LinkedAPIClient(target.account.identificationToken)
 
     since = target.lastCheckedAt.isoformat() if target.lastCheckedAt else None
     posts = await client.get_person_posts(target.targetUrl, limit=5, since=since)

@@ -235,7 +235,7 @@ export interface LinkedInAccount {
   id: string;
   name: string;
   profileUrl: string;
-  linkedApiToken: string;
+  identificationToken: string;  // LinkedAPI identification-token (per LinkedIn account)
   isActive: boolean;
   voiceTone: string;
   voiceTopics: string[];
@@ -246,7 +246,7 @@ export interface LinkedInAccount {
 
 export interface CreateAccountRequest {
   name: string;
-  linkedApiToken: string;
+  identificationToken: string;  // LinkedAPI identification-token (per LinkedIn account)
   profileUrl?: string;
   voiceTone?: string;
   voiceTopics?: string[];

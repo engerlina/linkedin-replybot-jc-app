@@ -1,6 +1,7 @@
 import asyncio
 import httpx
 from typing import Optional
+from app.config import settings
 
 
 class LinkedAPIError(Exception):
@@ -10,11 +11,16 @@ class LinkedAPIError(Exception):
 class LinkedAPIClient:
     BASE_URL = "https://api.linkedapi.io"
 
-    def __init__(self, api_key: str):
-        """Initialize with the account's LinkedAPI API key"""
-        self.api_key = api_key
+    def __init__(self, identification_token: str):
+        """
+        Initialize with both required LinkedAPI tokens:
+        - linked-api-token: Main API key from settings (LINKEDAPI_API_KEY)
+        - identification-token: Per-account token for the specific LinkedIn account
+        """
+        self.identification_token = identification_token
         self.headers = {
-            "Authorization": f"Bearer {api_key}",
+            "linked-api-token": settings.LINKEDAPI_API_KEY,
+            "identification-token": identification_token,
             "Content-Type": "application/json"
         }
 

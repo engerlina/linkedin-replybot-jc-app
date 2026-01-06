@@ -1,4 +1,4 @@
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 from fastapi import APIRouter, Depends
 
 from app.api.routes.auth import get_current_user
@@ -11,6 +11,8 @@ router = APIRouter()
 async def get_dashboard_stats(_=Depends(get_current_user)):
     today = date.today()
     today_start = datetime.combine(today, datetime.min.time())
+    # Convert date to datetime for Prisma compatibility
+    today_datetime = datetime.combine(today, datetime.min.time(), tzinfo=timezone.utc)
 
     # Total leads
     total_leads = await prisma.lead.count()
@@ -24,7 +26,7 @@ async def get_dashboard_stats(_=Depends(get_current_user)):
     comment_records = await prisma.ratelimit.find_many(
         where={
             "actionType": "comment",
-            "date": today
+            "date": today_datetime
         }
     )
     comments_today = sum(r.count for r in comment_records)
@@ -33,7 +35,7 @@ async def get_dashboard_stats(_=Depends(get_current_user)):
     connection_records = await prisma.ratelimit.find_many(
         where={
             "actionType": "connection_request",
-            "date": today
+            "date": today_datetime
         }
     )
     connections_today = sum(r.count for r in connection_records)
@@ -42,7 +44,7 @@ async def get_dashboard_stats(_=Depends(get_current_user)):
     dm_records = await prisma.ratelimit.find_many(
         where={
             "actionType": "message",
-            "date": today
+            "date": today_datetime
         }
     )
     dms_today = sum(r.count for r in dm_records)

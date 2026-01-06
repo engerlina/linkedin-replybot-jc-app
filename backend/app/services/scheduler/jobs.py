@@ -70,7 +70,7 @@ async def run_connection_checker():
 
     for lead in pending_leads:
         try:
-            client = LinkedAPIClient(lead.account.linkedApiToken)
+            client = LinkedAPIClient(lead.account.identificationToken)
             status = await client.check_connection(lead.linkedInUrl)
 
             if status == "connected":
@@ -105,7 +105,7 @@ async def run_pending_dm_sender():
     for lead in leads:
         if lead.post and await can_perform(lead.accountId, "message"):
             try:
-                client = LinkedAPIClient(lead.account.linkedApiToken)
+                client = LinkedAPIClient(lead.account.identificationToken)
                 await send_dm_to_lead(lead, lead.post, client)
                 await random_delay(120, 300)
             except Exception as e:
