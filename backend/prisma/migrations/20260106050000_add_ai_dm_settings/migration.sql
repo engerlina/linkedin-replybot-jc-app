@@ -1,0 +1,3 @@
+-- AlterTable
+ALTER TABLE "Settings" ADD COLUMN IF NOT EXISTS "dmAiPrompt" TEXT;
+ALTER TABLE "Settings" ADD COLUMN IF NOT EXISTS "dmUserContext" TEXT;
