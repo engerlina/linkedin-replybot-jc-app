@@ -29,6 +29,10 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('addCanned').addEventListener('click', addCannedResponse);
   document.getElementById('saveCanned').addEventListener('click', saveCannedResponses);
 
+  // Canned DM Messages
+  document.getElementById('addCannedDm').addEventListener('click', addCannedDmMessage);
+  document.getElementById('saveCannedDms').addEventListener('click', saveCannedDmMessages);
+
   // Cookie Sync
   document.getElementById('syncCookies').addEventListener('click', syncCookiesNow);
   checkCookieStatus();
@@ -41,7 +45,8 @@ async function loadSettings() {
   const settings = await chrome.storage.sync.get([
     'provider', 'apiKey', 'model', 'userContext', 'replyPrompt',
     'backendUrl', 'backendPassword',
-    'cannedResponses'
+    'cannedResponses',
+    'cannedDmMessages'
   ]);
 
   // AI Settings
@@ -77,6 +82,17 @@ async function loadSettings() {
   }
 
   renderCannedResponses(cannedResponses);
+
+  // Canned DM Messages
+  let cannedDmMessages = settings.cannedDmMessages || [];
+  if (cannedDmMessages.length === 0) {
+    cannedDmMessages = [
+      "Hey {name}! Saw your comment on my post and wanted to connect. I help [your service]. Would love to chat if you're interested!",
+      "Hi {name}, thanks for engaging with my content! I noticed you're in [industry]. I have some resources that might help - would you like me to share?",
+      "Hey {name}! Appreciate your thoughtful comment. I'm curious about your work - would you be open to a quick chat?"
+    ];
+  }
+  renderCannedDmMessages(cannedDmMessages);
 
   // Update model options
   updateModelOptions();
@@ -273,6 +289,116 @@ async function saveCannedResponses() {
   await chrome.storage.sync.set({ cannedResponses: responses });
 
   showStatus('cannedStatus', 'Canned responses saved!', 'success');
+}
+
+// Canned DM Messages functions
+function renderCannedDmMessages(messages) {
+  const container = document.getElementById('cannedDmList');
+  container.innerHTML = '';
+
+  messages.forEach((message, index) => {
+    const item = document.createElement('div');
+    item.className = 'canned-item';
+    item.innerHTML = `
+      <div class="canned-item-row">
+        <textarea style="min-height: 60px; resize: vertical; flex: 1;" data-index="${index}">${escapeHtml(message)}</textarea>
+        <div style="display: flex; flex-direction: column; gap: 4px;">
+          <button class="copy-dm-btn" data-index="${index}" style="padding: 4px 8px; background: #0077b5; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 11px;">Copy</button>
+          <button class="remove-btn" data-index="${index}">X</button>
+        </div>
+      </div>
+      <p class="help-text" style="margin-top: 4px;">Use {name} as placeholder for the person's name</p>
+    `;
+    container.appendChild(item);
+  });
+
+  // Add copy handlers
+  container.querySelectorAll('.copy-dm-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const index = parseInt(btn.dataset.index);
+      const textarea = container.querySelectorAll('textarea')[index];
+      const text = textarea.value;
+
+      try {
+        await navigator.clipboard.writeText(text);
+        const originalText = btn.textContent;
+        btn.textContent = 'Copied!';
+        btn.style.background = '#057642';
+        setTimeout(() => {
+          btn.textContent = originalText;
+          btn.style.background = '#0077b5';
+        }, 1500);
+      } catch (err) {
+        alert('Failed to copy: ' + err.message);
+      }
+    });
+  });
+
+  // Add remove handlers
+  container.querySelectorAll('.remove-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const index = parseInt(btn.dataset.index);
+      const items = Array.from(container.querySelectorAll('.canned-item'));
+      items[index].remove();
+    });
+  });
+}
+
+function addCannedDmMessage() {
+  const container = document.getElementById('cannedDmList');
+
+  const item = document.createElement('div');
+  item.className = 'canned-item';
+  item.innerHTML = `
+    <div class="canned-item-row">
+      <textarea style="min-height: 60px; resize: vertical; flex: 1;" placeholder="Hey {name}! Great connecting with you..."></textarea>
+      <div style="display: flex; flex-direction: column; gap: 4px;">
+        <button class="copy-dm-btn" style="padding: 4px 8px; background: #0077b5; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 11px;">Copy</button>
+        <button class="remove-btn">X</button>
+      </div>
+    </div>
+    <p class="help-text" style="margin-top: 4px;">Use {name} as placeholder for the person's name</p>
+  `;
+  container.appendChild(item);
+
+  // Focus the new textarea
+  item.querySelector('textarea').focus();
+
+  // Add copy handler
+  item.querySelector('.copy-dm-btn').addEventListener('click', async () => {
+    const textarea = item.querySelector('textarea');
+    const text = textarea.value;
+
+    try {
+      await navigator.clipboard.writeText(text);
+      const btn = item.querySelector('.copy-dm-btn');
+      const originalText = btn.textContent;
+      btn.textContent = 'Copied!';
+      btn.style.background = '#057642';
+      setTimeout(() => {
+        btn.textContent = originalText;
+        btn.style.background = '#0077b5';
+      }, 1500);
+    } catch (err) {
+      alert('Failed to copy: ' + err.message);
+    }
+  });
+
+  // Add remove handler
+  item.querySelector('.remove-btn').addEventListener('click', () => {
+    item.remove();
+  });
+}
+
+async function saveCannedDmMessages() {
+  const items = document.querySelectorAll('#cannedDmList .canned-item');
+  const messages = Array.from(items)
+    .map(item => item.querySelector('textarea').value.trim())
+    .filter(text => text.length > 0);
+
+  await chrome.storage.sync.set({ cannedDmMessages: messages });
+
+  showStatus('cannedDmStatus', 'DM templates saved!', 'success');
 }
 
 function showStatus(elementId, message, type) {

@@ -339,6 +339,10 @@
 
       const reply = response.reply;
 
+      // Auto-like the comment first
+      button.querySelector('span').textContent = 'Liking...';
+      await likeComment(comment);
+
       // Open reply box and insert text
       await openReplyBox(comment);
       await insertReply(comment, reply);
@@ -397,6 +401,65 @@
         button.querySelector('span').textContent = originalText;
       }, 3000);
     }
+  }
+
+  // Like a comment
+  async function likeComment(comment) {
+    // Find the like button in the comment's social bar
+    const likeSelectors = [
+      'button[aria-label*="Like"]',
+      'button[aria-label*="like"]',
+      '.comments-comment-social-bar__reactions-icon button',
+      '.social-actions-button[aria-label*="Like"]',
+      'button.react-button__trigger',
+      '.comments-comment-social-bar button:first-child',
+      // Newer LinkedIn UI
+      'button[data-test-reactions-icon-btn]',
+      '.comment-social-bar button[aria-pressed]'
+    ];
+
+    for (const selector of likeSelectors) {
+      const likeBtn = comment.querySelector(selector);
+      if (likeBtn) {
+        // Check if already liked (aria-pressed="true" or has active class)
+        const isLiked = likeBtn.getAttribute('aria-pressed') === 'true' ||
+                        likeBtn.classList.contains('react-button--active') ||
+                        likeBtn.querySelector('.reactions-icon--active');
+
+        if (!isLiked) {
+          console.log('[LinkedIn Reply Bot] Clicking like button');
+          likeBtn.click();
+          await new Promise(resolve => setTimeout(resolve, 300));
+          return true;
+        } else {
+          console.log('[LinkedIn Reply Bot] Comment already liked');
+          return true;
+        }
+      }
+    }
+
+    // Try finding in the comment's social actions area
+    const socialBar = comment.querySelector('.comments-comment-social-bar, .comment-social-bar');
+    if (socialBar) {
+      const buttons = socialBar.querySelectorAll('button');
+      for (const btn of buttons) {
+        const text = btn.textContent.toLowerCase();
+        const label = (btn.getAttribute('aria-label') || '').toLowerCase();
+        if (text.includes('like') || label.includes('like')) {
+          const isLiked = btn.getAttribute('aria-pressed') === 'true';
+          if (!isLiked) {
+            console.log('[LinkedIn Reply Bot] Clicking like button (fallback)');
+            btn.click();
+            await new Promise(resolve => setTimeout(resolve, 300));
+            return true;
+          }
+          return true;
+        }
+      }
+    }
+
+    console.warn('[LinkedIn Reply Bot] Could not find like button');
+    return false;
   }
 
   // Show "Add to Flow" button after replying

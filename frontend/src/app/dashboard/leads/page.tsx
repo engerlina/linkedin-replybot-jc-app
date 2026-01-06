@@ -385,6 +385,32 @@ export default function LeadsPage() {
                         </button>
                       )}
 
+                      {/* Open LinkedIn Messages (deep link) */}
+                      {lead.linkedInUrl && lead.connectionStatus === 'connected' && (
+                        <a
+                          href={getLinkedInMessageUrl(lead.linkedInUrl)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          title="Open LinkedIn Messages"
+                          className="p-1.5 rounded bg-purple-600 hover:bg-purple-500 text-white transition-colors inline-flex items-center justify-center"
+                        >
+                          <ExternalMessageIcon />
+                        </a>
+                      )}
+
+                      {/* Open LinkedIn Profile (for non-connected) */}
+                      {lead.linkedInUrl && lead.connectionStatus !== 'connected' && (
+                        <a
+                          href={lead.linkedInUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          title="Open LinkedIn Profile (to connect manually)"
+                          className="p-1.5 rounded bg-gray-600 hover:bg-gray-500 text-white transition-colors inline-flex items-center justify-center"
+                        >
+                          <ExternalLinkIcon />
+                        </a>
+                      )}
+
                       {/* Delete */}
                       <button
                         onClick={() => handleDelete(lead.id)}
@@ -406,9 +432,30 @@ export default function LeadsPage() {
       {dmPreviewModal.show && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-gray-800 rounded-lg p-6 w-full max-w-lg mx-4">
-            <h2 className="text-xl font-bold text-white mb-4">
-              Send DM to {dmPreviewModal.leadName}
-            </h2>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-bold text-white">
+                Send DM to {dmPreviewModal.leadName}
+              </h2>
+              {/* Find lead and show LinkedIn message link */}
+              {(() => {
+                const lead = leads.find(l => l.id === dmPreviewModal.leadId);
+                if (lead?.linkedInUrl && lead.connectionStatus === 'connected') {
+                  return (
+                    <a
+                      href={getLinkedInMessageUrl(lead.linkedInUrl)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-1 text-sm text-purple-400 hover:text-purple-300"
+                      title="Open LinkedIn Messages"
+                    >
+                      <ExternalLinkIcon />
+                      Open in LinkedIn
+                    </a>
+                  );
+                }
+                return null;
+              })()}
+            </div>
 
             {dmPreviewModal.loading ? (
               <div className="flex items-center justify-center py-8">
@@ -419,21 +466,30 @@ export default function LeadsPage() {
               <>
                 {dmPreviewModal.preview && (
                   <div className="mb-4">
-                    <div className="flex items-center gap-2 mb-2">
-                      <span className="text-gray-400 text-sm">Source:</span>
-                      <span className={`px-2 py-0.5 rounded text-xs ${
-                        dmPreviewModal.preview.source === 'ai_generated'
-                          ? 'bg-purple-600 text-white'
-                          : dmPreviewModal.preview.source === 'template'
-                          ? 'bg-blue-600 text-white'
-                          : 'bg-gray-600 text-white'
-                      }`}>
-                        {dmPreviewModal.preview.source === 'ai_generated'
-                          ? 'AI Generated'
-                          : dmPreviewModal.preview.source === 'template'
-                          ? 'Template'
-                          : 'Pending'}
-                      </span>
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-2">
+                        <span className="text-gray-400 text-sm">Source:</span>
+                        <span className={`px-2 py-0.5 rounded text-xs ${
+                          dmPreviewModal.preview.source === 'ai_generated'
+                            ? 'bg-purple-600 text-white'
+                            : dmPreviewModal.preview.source === 'template'
+                            ? 'bg-blue-600 text-white'
+                            : 'bg-gray-600 text-white'
+                        }`}>
+                          {dmPreviewModal.preview.source === 'ai_generated'
+                            ? 'AI Generated'
+                            : dmPreviewModal.preview.source === 'template'
+                            ? 'Template'
+                            : 'Pending'}
+                        </span>
+                      </div>
+                      <a
+                        href="/dashboard/settings"
+                        className="text-xs text-blue-400 hover:text-blue-300"
+                        title="Configure AI prompt and context for DM generation"
+                      >
+                        Edit DM Settings
+                      </a>
                     </div>
                   </div>
                 )}
@@ -462,6 +518,18 @@ export default function LeadsPage() {
                     disabled={dmPreviewModal.sending}
                   >
                     Cancel
+                  </button>
+                  <button
+                    onClick={async () => {
+                      await navigator.clipboard.writeText(dmPreviewModal.editedMessage);
+                      alert('Message copied to clipboard!');
+                    }}
+                    disabled={!dmPreviewModal.editedMessage.trim()}
+                    className="px-4 py-2 bg-purple-600 text-white rounded hover:bg-purple-500 disabled:opacity-50 flex items-center gap-2"
+                    title="Copy message to clipboard for manual sending"
+                  >
+                    <CopyIcon />
+                    Copy
                   </button>
                   <button
                     onClick={handleSendDMFromModal}
@@ -566,4 +634,48 @@ function TrashIcon() {
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
     </svg>
   );
+}
+
+function ExternalMessageIcon() {
+  return (
+    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+    </svg>
+  );
+}
+
+function ExternalLinkIcon() {
+  return (
+    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+    </svg>
+  );
+}
+
+function CopyIcon() {
+  return (
+    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+    </svg>
+  );
+}
+
+// Helper to extract public ID from LinkedIn URL and construct message URL
+function getLinkedInMessageUrl(linkedInUrl: string): string {
+  // Extract public ID from LinkedIn URL
+  // URLs can be like: https://www.linkedin.com/in/johndoe or https://linkedin.com/in/johndoe/
+  const match = linkedInUrl.match(/linkedin\.com\/in\/([^/?]+)/);
+  if (match) {
+    const publicId = match[1];
+    return `https://www.linkedin.com/messaging/compose?recipient=${publicId}`;
+  }
+  // Fallback to just opening messaging
+  return 'https://www.linkedin.com/messaging/';
+}
+
+// Extract public ID from LinkedIn URL for display
+function getPublicIdFromUrl(linkedInUrl: string): string | null {
+  const match = linkedInUrl.match(/linkedin\.com\/in\/([^/?]+)/);
+  return match ? match[1] : null;
 }

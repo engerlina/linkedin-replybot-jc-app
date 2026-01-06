@@ -208,13 +208,23 @@ export default function SettingsPage() {
           </div>
         </div>
 
-        {/* AI DM Generation */}
+        {/* AI DM Generation - Featured Section */}
         {settings && (
-          <div className="bg-gray-800 rounded-lg p-6">
-            <h2 className="text-lg font-semibold text-white mb-4">AI DM Generation</h2>
+          <div className="bg-gray-800 rounded-lg p-6 border-2 border-purple-600/50">
+            <div className="flex items-center gap-2 mb-4">
+              <div className="bg-purple-600 rounded-lg p-2">
+                <svg className="h-5 w-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                </svg>
+              </div>
+              <div>
+                <h2 className="text-lg font-semibold text-white">DM Message Settings</h2>
+                <p className="text-gray-400 text-sm">Configure how AI generates personalized messages for your leads</p>
+              </div>
+            </div>
             <div className="space-y-4">
               <div>
-                <label className="block text-gray-300 mb-1">About You / Your Business</label>
+                <label className="block text-gray-300 mb-1 font-medium">About You / Your Business</label>
                 <textarea
                   value={settings.dmUserContext || ''}
                   onChange={(e) =>
@@ -228,7 +238,7 @@ export default function SettingsPage() {
                 </p>
               </div>
               <div>
-                <label className="block text-gray-300 mb-1">DM Generation Instructions</label>
+                <label className="block text-gray-300 mb-1 font-medium">DM Generation Instructions</label>
                 <textarea
                   value={settings.dmAiPrompt || ''}
                   onChange={(e) =>
@@ -239,6 +249,12 @@ export default function SettingsPage() {
                 />
                 <p className="text-gray-500 text-xs mt-1">
                   Instructions for how the AI should write DMs. The AI will have access to the lead&apos;s name, headline, and the post they commented on.
+                </p>
+              </div>
+              <div className="bg-purple-900/30 rounded p-3 border border-purple-600/30">
+                <p className="text-purple-300 text-sm">
+                  <strong>Tip:</strong> These settings are used when you click the DM button on the Leads page.
+                  The AI will generate a personalized message based on your context and the lead&apos;s information.
                 </p>
               </div>
             </div>
