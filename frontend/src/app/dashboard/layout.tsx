@@ -7,6 +7,7 @@ import { api } from '@/lib/api';
 const navItems = [
   { href: '/dashboard', label: 'Overview', icon: '📊' },
   { href: '/dashboard/reply-bot', label: 'Reply Bot', icon: '💬' },
+  { href: '/dashboard/review-queue', label: 'Review Queue', icon: '📝' },
   { href: '/dashboard/comment-bot', label: 'Comment Bot', icon: '✍️' },
   { href: '/dashboard/leads', label: 'Leads', icon: '👥' },
   { href: '/dashboard/logs', label: 'Logs', icon: '📋' },

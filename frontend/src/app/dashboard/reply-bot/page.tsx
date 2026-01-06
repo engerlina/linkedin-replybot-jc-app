@@ -45,6 +45,15 @@ export default function ReplyBotPage() {
     }
   };
 
+  const handleToggleAutoReply = async (post: MonitoredPost) => {
+    try {
+      await api.updateMonitoredPost(post.id, { autoReply: !post.autoReply });
+      loadData();
+    } catch (err) {
+      console.error('Failed to toggle auto-reply', err);
+    }
+  };
+
   const handleDelete = async (postId: string) => {
     if (!confirm('Are you sure you want to delete this post?')) return;
     try {
@@ -175,7 +184,7 @@ export default function ReplyBotPage() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm mb-4">
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-4 text-sm mb-4">
                 <div>
                   <span className="text-gray-400">Keywords:</span>
                   <div className="text-white mt-1">
@@ -204,6 +213,19 @@ export default function ReplyBotPage() {
                       ? formatRelativeTime(post.lastPolledAt)
                       : 'Never'}
                   </p>
+                </div>
+                <div>
+                  <span className="text-gray-400">Auto-Reply:</span>
+                  <button
+                    onClick={() => handleToggleAutoReply(post)}
+                    className={`mt-1 px-3 py-1 rounded text-sm block ${
+                      post.autoReply
+                        ? 'bg-green-600 text-white'
+                        : 'bg-yellow-600 text-white'
+                    }`}
+                  >
+                    {post.autoReply ? 'Auto' : 'Review'}
+                  </button>
                 </div>
               </div>
 
