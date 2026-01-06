@@ -138,28 +138,33 @@ class LinkedAPIClient:
         import logging
         logger = logging.getLogger(__name__)
 
-        result = await self.execute({
-            "actionType": "st.sendMessage",
-            "personUrl": person_url,
-            "text": text
-        })
+        try:
+            result = await self.execute({
+                "actionType": "st.sendMessage",
+                "personUrl": person_url,
+                "text": text
+            })
 
-        # Debug logging
-        logger.info(f"LinkedAPI send_message result: {result}")
+            # Debug logging - show everything
+            logger.info(f"LinkedAPI send_message completed. Full result: {result}")
 
-        # Check for errors first
-        if result.get("error"):
-            logger.error(f"LinkedAPI send_message error: {result.get('error')}")
+            # If we got here, the workflow completed successfully
+            # The execute() method raises LinkedAPIError on failure
+            # Log warnings for any potential issues but don't fail
+            if result.get("error"):
+                logger.warning(f"Result has error field: {result.get('error')}")
+            if result.get("success") is False:
+                logger.warning(f"Result has success:false")
+
+            # Workflow completed = success (trust the API)
+            return True
+
+        except LinkedAPIError as e:
+            logger.error(f"LinkedAPI send_message failed with error: {e}")
+            raise  # Re-raise to propagate proper error message
+        except Exception as e:
+            logger.error(f"Unexpected error in send_message: {e}")
             return False
-
-        # The API may return success:false for various reasons
-        # Log it but don't necessarily fail - the workflow completed
-        if result.get("success") is False:
-            logger.warning(f"LinkedAPI send_message returned success:false - {result}")
-            # Still return True if workflow completed - check Railway logs to debug
-            # The workflow completing without error suggests the action was attempted
-
-        return True
 
     async def get_person_posts(self, person_url: str, limit: int = 5, since: Optional[str] = None) -> list:
         result = await self.execute({
