@@ -58,7 +58,10 @@ class ApiClient {
         message = error.detail;
       } else if (Array.isArray(error.detail) && error.detail.length > 0) {
         // FastAPI validation error format: [{loc: [...], msg: "...", type: "..."}]
-        message = error.detail.map((e: { msg: string }) => e.msg).join(', ');
+        message = error.detail.map((e: { loc?: string[]; msg: string }) => {
+          const field = e.loc ? e.loc[e.loc.length - 1] : '';
+          return field ? `${field}: ${e.msg}` : e.msg;
+        }).join(', ');
       }
       throw new Error(message);
     }
