@@ -573,7 +573,7 @@ async def batch_check_leads(req: BatchCheckLeadsRequest, _=Depends(get_current_u
             "name": lead.name,
             "connectionStatus": lead.connectionStatus,
             "dmStatus": lead.dmStatus,
-            "postUrl": lead.postUrl
+            "sourcePostUrl": lead.sourcePostUrl
         }
 
     return {"leads": result}
@@ -581,15 +581,15 @@ async def batch_check_leads(req: BatchCheckLeadsRequest, _=Depends(get_current_u
 
 class BulkTagLeadsRequest(BaseModel):
     postUrl: str
-    leadIds: Optional[List[str]] = None  # If None, tag all leads without a postUrl
+    leadIds: Optional[List[str]] = None  # If None, tag all leads without a sourcePostUrl
 
 
 @router.post("/bulk-tag-leads")
 async def bulk_tag_leads(req: BulkTagLeadsRequest, _=Depends(get_current_user)):
     """
-    Bulk update leads with a post URL (tag them to a specific post).
+    Bulk update leads with a source post URL (tag them to a specific post).
     If leadIds is provided, only those leads are updated.
-    If leadIds is None, all leads without a postUrl are updated.
+    If leadIds is None, all leads without a sourcePostUrl are updated.
     """
     if not req.postUrl or not req.postUrl.strip():
         raise HTTPException(status_code=400, detail="Post URL is required")
@@ -600,13 +600,13 @@ async def bulk_tag_leads(req: BulkTagLeadsRequest, _=Depends(get_current_user)):
         # Update specific leads
         result = await prisma.lead.update_many(
             where={"id": {"in": req.leadIds}},
-            data={"postUrl": post_url}
+            data={"sourcePostUrl": post_url}
         )
         return {"success": True, "updated": result, "message": f"Tagged {result} leads with post URL"}
     else:
-        # Update all leads without a postUrl
+        # Update all leads without a sourcePostUrl
         result = await prisma.lead.update_many(
-            where={"postUrl": None},
-            data={"postUrl": post_url}
+            where={"sourcePostUrl": None},
+            data={"sourcePostUrl": post_url}
         )
         return {"success": True, "updated": result, "message": f"Tagged {result} leads (those without existing post URL)"}
