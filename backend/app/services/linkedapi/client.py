@@ -143,16 +143,28 @@ class LinkedAPIClient:
             "personUrl": person_url,
             "text": text
         })
+
+        # Debug logging
+        logger.info(f"LinkedAPI send_message result type: {type(result)}")
         logger.info(f"LinkedAPI send_message result: {result}")
+        logger.info(f"Result keys: {result.keys() if isinstance(result, dict) else 'not a dict'}")
+        logger.info(f"result.get('error'): {result.get('error')}")
+        logger.info(f"result.get('success'): {result.get('success')}")
 
         # If the workflow completed without error, consider it success
         # The execute method raises LinkedAPIError on failure
         # Check for explicit failure indicators
-        if result.get("error") or result.get("success") is False:
+        has_error = result.get("error")
+        success_is_false = result.get("success") is False
+
+        logger.info(f"has_error={has_error}, success_is_false={success_is_false}")
+
+        if has_error or success_is_false:
             logger.error(f"LinkedAPI send_message failed: {result}")
             return False
 
         # Workflow completed successfully
+        logger.info("send_message returning True")
         return True
 
     async def get_person_posts(self, person_url: str, limit: int = 5, since: Optional[str] = None) -> list:
