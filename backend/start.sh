@@ -8,6 +8,14 @@ echo "JWT_SECRET set: $(if [ -n "$JWT_SECRET" ]; then echo 'yes'; else echo 'NO 
 echo "ADMIN_PASSWORD set: $(if [ -n "$ADMIN_PASSWORD" ]; then echo 'yes'; else echo 'NO - MISSING!'; fi)"
 echo ""
 
+# Generate Prisma client at runtime (ensures correct binaries for this platform)
+echo "Generating Prisma client..."
+prisma generate 2>&1 || {
+    echo "ERROR: Prisma generate failed!"
+    exit 1
+}
+echo ""
+
 # Test Python imports before starting
 echo "Testing Python imports..."
 python -c "

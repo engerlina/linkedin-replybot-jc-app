@@ -11,9 +11,8 @@ RUN apt-get update && apt-get install -y \
 COPY requirements.txt ./requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy Prisma schema and generate client
+# Copy Prisma schema (generate at runtime for correct binaries)
 COPY prisma ./prisma
-RUN prisma generate
 
 # Copy application code
 COPY app ./app
