@@ -710,7 +710,8 @@
   // =====================
 
   let cannedDmMessages = [];
-  let dmSidebarVisible = false;
+  let dmSidebarVisible = true; // Start visible
+  let dmSidebarMinimized = false;
 
   // Load canned DM messages
   async function loadCannedDmMessages() {
@@ -722,9 +723,15 @@
     ];
   }
 
+  // Save canned DM messages
+  async function saveCannedDmMessages() {
+    await chrome.storage.sync.set({ cannedDmMessages });
+    console.log('[LinkedIn Reply Bot] DM templates saved');
+  }
+
   // Create floating DM sidebar
   function createDmSidebar() {
-    if (document.getElementById('reply-bot-dm-sidebar')) return;
+    if (document.getElementById('reply-bot-dm-sidebar')) return document.getElementById('reply-bot-dm-sidebar');
 
     const sidebar = document.createElement('div');
     sidebar.id = 'reply-bot-dm-sidebar';
@@ -733,19 +740,26 @@
         #reply-bot-dm-sidebar {
           position: fixed;
           right: 20px;
-          top: 100px;
-          width: 320px;
-          max-height: 500px;
+          top: 80px;
+          width: 340px;
+          max-height: calc(100vh - 120px);
           background: white;
           border-radius: 12px;
           box-shadow: 0 8px 32px rgba(0,0,0,0.15);
           z-index: 9999;
           font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
           overflow: hidden;
-          display: none;
-        }
-        #reply-bot-dm-sidebar.visible {
           display: block;
+          transition: all 0.3s ease;
+        }
+        #reply-bot-dm-sidebar.minimized {
+          width: 180px;
+          max-height: 44px;
+          overflow: hidden;
+        }
+        #reply-bot-dm-sidebar.minimized .dm-sidebar-content,
+        #reply-bot-dm-sidebar.minimized .dm-sidebar-footer {
+          display: none;
         }
         .dm-sidebar-header {
           background: linear-gradient(135deg, #0077b5 0%, #00a0dc 100%);
@@ -756,27 +770,51 @@
           display: flex;
           justify-content: space-between;
           align-items: center;
+          cursor: pointer;
         }
-        .dm-sidebar-close {
-          background: none;
+        .dm-sidebar-header-left {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        }
+        .dm-sidebar-header-btns {
+          display: flex;
+          gap: 8px;
+        }
+        .dm-sidebar-btn {
+          background: rgba(255,255,255,0.2);
           border: none;
           color: white;
           cursor: pointer;
-          font-size: 18px;
-          padding: 0;
+          font-size: 14px;
+          padding: 4px 8px;
+          border-radius: 4px;
           line-height: 1;
         }
+        .dm-sidebar-btn:hover {
+          background: rgba(255,255,255,0.3);
+        }
+        .dm-sidebar-recipient {
+          background: rgba(255,255,255,0.15);
+          padding: 8px 16px;
+          font-size: 12px;
+          color: white;
+          border-bottom: 1px solid rgba(255,255,255,0.1);
+        }
+        .dm-sidebar-recipient strong {
+          color: #fff;
+        }
         .dm-sidebar-content {
-          max-height: 400px;
+          max-height: calc(100vh - 280px);
           overflow-y: auto;
           padding: 12px;
         }
         .dm-sidebar-item {
-          background: #f5f5f5;
+          background: #f8f9fa;
+          border: 1px solid #e9ecef;
           border-radius: 8px;
-          padding: 12px;
+          padding: 10px;
           margin-bottom: 10px;
-          cursor: pointer;
           transition: all 0.2s;
           font-size: 13px;
           line-height: 1.4;
@@ -784,27 +822,76 @@
           position: relative;
         }
         .dm-sidebar-item:hover {
-          background: #e8f4fc;
-          transform: translateX(-2px);
+          border-color: #0077b5;
+          box-shadow: 0 2px 8px rgba(0,119,181,0.1);
         }
         .dm-sidebar-item.copied {
           background: #e8f5e9;
+          border-color: #4caf50;
         }
-        .dm-sidebar-item-text {
-          display: -webkit-box;
-          -webkit-line-clamp: 3;
-          -webkit-box-orient: vertical;
-          overflow: hidden;
+        .dm-sidebar-textarea {
+          width: 100%;
+          border: none;
+          background: transparent;
+          resize: none;
+          font-size: 13px;
+          line-height: 1.4;
+          color: #333;
+          font-family: inherit;
+          min-height: 60px;
         }
-        .dm-sidebar-copy-hint {
-          font-size: 10px;
-          color: #888;
-          margin-top: 6px;
-          text-align: right;
+        .dm-sidebar-textarea:focus {
+          outline: none;
         }
-        .dm-sidebar-item.copied .dm-sidebar-copy-hint {
-          color: #2e7d32;
+        .dm-sidebar-item-actions {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          margin-top: 8px;
+          padding-top: 8px;
+          border-top: 1px solid #eee;
+        }
+        .dm-sidebar-action-btn {
+          padding: 4px 10px;
+          border: none;
+          border-radius: 4px;
+          font-size: 11px;
           font-weight: 600;
+          cursor: pointer;
+          transition: all 0.2s;
+        }
+        .dm-sidebar-copy-btn {
+          background: #0077b5;
+          color: white;
+        }
+        .dm-sidebar-copy-btn:hover {
+          background: #005582;
+        }
+        .dm-sidebar-copy-btn.copied {
+          background: #4caf50;
+        }
+        .dm-sidebar-delete-btn {
+          background: transparent;
+          color: #dc3545;
+          padding: 4px 6px;
+        }
+        .dm-sidebar-delete-btn:hover {
+          background: #ffebee;
+        }
+        .dm-sidebar-add-btn {
+          width: 100%;
+          padding: 10px;
+          background: #e3f2fd;
+          color: #1976d2;
+          border: 1px dashed #1976d2;
+          border-radius: 8px;
+          cursor: pointer;
+          font-size: 12px;
+          font-weight: 600;
+          margin-top: 8px;
+        }
+        .dm-sidebar-add-btn:hover {
+          background: #bbdefb;
         }
         .dm-sidebar-empty {
           text-align: center;
@@ -813,101 +900,211 @@
           font-size: 13px;
         }
         .dm-sidebar-footer {
-          padding: 10px 16px;
+          padding: 8px 16px;
           border-top: 1px solid #eee;
-          font-size: 11px;
-          color: #666;
+          font-size: 10px;
+          color: #888;
           text-align: center;
+          background: #fafafa;
         }
-        .dm-sidebar-footer a {
-          color: #0077b5;
-          text-decoration: none;
+        .dm-sidebar-hint {
+          font-size: 10px;
+          color: #888;
         }
       </style>
       <div class="dm-sidebar-header">
-        <span>📋 DM Templates</span>
-        <button class="dm-sidebar-close" title="Close">×</button>
+        <div class="dm-sidebar-header-left">
+          <span>📋 DM Templates</span>
+        </div>
+        <div class="dm-sidebar-header-btns">
+          <button class="dm-sidebar-btn dm-sidebar-minimize" title="Minimize">−</button>
+        </div>
+      </div>
+      <div class="dm-sidebar-recipient" id="dm-sidebar-recipient">
+        Recipient: <strong id="dm-recipient-name">detecting...</strong>
       </div>
       <div class="dm-sidebar-content" id="dm-sidebar-messages"></div>
       <div class="dm-sidebar-footer">
-        Click to copy • Edit templates in <a href="#" id="dm-sidebar-settings">extension settings</a>
+        Use {name} for recipient's name • Templates auto-save
       </div>
     `;
 
     document.body.appendChild(sidebar);
 
-    // Close button
-    sidebar.querySelector('.dm-sidebar-close').addEventListener('click', () => {
-      toggleDmSidebar(false);
+    // Minimize button
+    sidebar.querySelector('.dm-sidebar-minimize').addEventListener('click', (e) => {
+      e.stopPropagation();
+      toggleDmSidebarMinimize();
     });
 
-    // Settings link
-    sidebar.querySelector('#dm-sidebar-settings').addEventListener('click', (e) => {
-      e.preventDefault();
-      chrome.runtime.sendMessage({ action: 'openPopup' });
+    // Click header to expand when minimized
+    sidebar.querySelector('.dm-sidebar-header').addEventListener('click', () => {
+      if (dmSidebarMinimized) {
+        toggleDmSidebarMinimize();
+      }
     });
 
     return sidebar;
   }
 
-  // Render DM messages in sidebar
+  // Toggle minimize state
+  function toggleDmSidebarMinimize() {
+    const sidebar = document.getElementById('reply-bot-dm-sidebar');
+    if (!sidebar) return;
+
+    dmSidebarMinimized = !dmSidebarMinimized;
+    if (dmSidebarMinimized) {
+      sidebar.classList.add('minimized');
+      sidebar.querySelector('.dm-sidebar-minimize').textContent = '+';
+      sidebar.querySelector('.dm-sidebar-minimize').title = 'Expand';
+    } else {
+      sidebar.classList.remove('minimized');
+      sidebar.querySelector('.dm-sidebar-minimize').textContent = '−';
+      sidebar.querySelector('.dm-sidebar-minimize').title = 'Minimize';
+      renderDmSidebarMessages();
+    }
+  }
+
+  // Render DM messages in sidebar with editable textareas
   function renderDmSidebarMessages() {
     const container = document.getElementById('dm-sidebar-messages');
     if (!container) return;
 
     container.innerHTML = '';
 
-    if (cannedDmMessages.length === 0) {
-      container.innerHTML = '<div class="dm-sidebar-empty">No DM templates configured.<br>Add templates in the extension popup.</div>';
-      return;
+    // Update recipient name
+    const recipientName = getMessagingRecipientName();
+    const recipientEl = document.getElementById('dm-recipient-name');
+    if (recipientEl) {
+      recipientEl.textContent = recipientName || '(not detected)';
     }
 
-    cannedDmMessages.forEach((message, index) => {
-      const item = document.createElement('div');
-      item.className = 'dm-sidebar-item';
-      item.dataset.index = index;
+    if (cannedDmMessages.length === 0) {
+      container.innerHTML = '<div class="dm-sidebar-empty">No templates yet.<br>Click "Add Template" below.</div>';
+    } else {
+      cannedDmMessages.forEach((message, index) => {
+        const item = document.createElement('div');
+        item.className = 'dm-sidebar-item';
+        item.dataset.index = index;
 
-      // Try to get recipient name from the messaging page
-      const recipientName = getMessagingRecipientName();
-      const personalizedMessage = message.replace(/\{name\}/g, recipientName || '[Name]');
+        const textarea = document.createElement('textarea');
+        textarea.className = 'dm-sidebar-textarea';
+        textarea.value = message;
+        textarea.placeholder = 'Enter your DM template...';
 
-      item.innerHTML = `
-        <div class="dm-sidebar-item-text">${escapeHtml(personalizedMessage)}</div>
-        <div class="dm-sidebar-copy-hint">Click to copy</div>
-      `;
+        // Auto-resize
+        textarea.addEventListener('input', () => {
+          textarea.style.height = 'auto';
+          textarea.style.height = textarea.scrollHeight + 'px';
+          // Save on edit (debounced)
+          clearTimeout(textarea.saveTimeout);
+          textarea.saveTimeout = setTimeout(() => {
+            cannedDmMessages[index] = textarea.value;
+            saveCannedDmMessages();
+          }, 500);
+        });
 
-      item.addEventListener('click', async () => {
-        try {
-          await navigator.clipboard.writeText(personalizedMessage);
-          item.classList.add('copied');
-          item.querySelector('.dm-sidebar-copy-hint').textContent = 'Copied!';
+        const actions = document.createElement('div');
+        actions.className = 'dm-sidebar-item-actions';
 
-          // Try to paste into message input
-          insertIntoMessageInput(personalizedMessage);
+        const hint = document.createElement('span');
+        hint.className = 'dm-sidebar-hint';
+        hint.textContent = '{name} = ' + (recipientName || 'recipient');
 
-          setTimeout(() => {
-            item.classList.remove('copied');
-            item.querySelector('.dm-sidebar-copy-hint').textContent = 'Click to copy';
-          }, 2000);
-        } catch (err) {
-          console.error('Failed to copy:', err);
-        }
+        const btnsDiv = document.createElement('div');
+        btnsDiv.style.display = 'flex';
+        btnsDiv.style.gap = '6px';
+
+        const copyBtn = document.createElement('button');
+        copyBtn.className = 'dm-sidebar-action-btn dm-sidebar-copy-btn';
+        copyBtn.textContent = 'Copy & Insert';
+        copyBtn.addEventListener('click', async () => {
+          const personalizedMessage = textarea.value.replace(/\{name\}/g, recipientName || '');
+          try {
+            await navigator.clipboard.writeText(personalizedMessage);
+            insertIntoMessageInput(personalizedMessage);
+            copyBtn.textContent = 'Copied!';
+            copyBtn.classList.add('copied');
+            item.classList.add('copied');
+            setTimeout(() => {
+              copyBtn.textContent = 'Copy & Insert';
+              copyBtn.classList.remove('copied');
+              item.classList.remove('copied');
+            }, 2000);
+          } catch (err) {
+            console.error('Failed to copy:', err);
+          }
+        });
+
+        const deleteBtn = document.createElement('button');
+        deleteBtn.className = 'dm-sidebar-action-btn dm-sidebar-delete-btn';
+        deleteBtn.innerHTML = '🗑';
+        deleteBtn.title = 'Delete template';
+        deleteBtn.addEventListener('click', () => {
+          cannedDmMessages.splice(index, 1);
+          saveCannedDmMessages();
+          renderDmSidebarMessages();
+        });
+
+        btnsDiv.appendChild(copyBtn);
+        btnsDiv.appendChild(deleteBtn);
+        actions.appendChild(hint);
+        actions.appendChild(btnsDiv);
+
+        item.appendChild(textarea);
+        item.appendChild(actions);
+        container.appendChild(item);
+
+        // Set initial height
+        setTimeout(() => {
+          textarea.style.height = 'auto';
+          textarea.style.height = textarea.scrollHeight + 'px';
+        }, 0);
       });
+    }
 
-      container.appendChild(item);
+    // Add template button
+    const addBtn = document.createElement('button');
+    addBtn.className = 'dm-sidebar-add-btn';
+    addBtn.textContent = '+ Add Template';
+    addBtn.addEventListener('click', () => {
+      cannedDmMessages.push('Hey {name}! ');
+      saveCannedDmMessages();
+      renderDmSidebarMessages();
+      // Focus the new textarea
+      setTimeout(() => {
+        const textareas = container.querySelectorAll('.dm-sidebar-textarea');
+        if (textareas.length > 0) {
+          textareas[textareas.length - 1].focus();
+        }
+      }, 100);
     });
+    container.appendChild(addBtn);
   }
 
   // Get recipient name from messaging page
   function getMessagingRecipientName() {
-    // Try various selectors for the conversation header
+    // Try various selectors for the conversation header (expanded list)
     const selectors = [
+      // Full messaging page
+      '.msg-thread .msg-entity-lockup__entity-title',
+      '.msg-thread h2.msg-entity-lockup__entity-title',
+      '.msg-s-message-list-container .msg-entity-lockup__entity-title',
+      '.msg-conversations-container__title-row .truncate',
+      // Compose/overlay
       '.msg-overlay-conversation-bubble__title',
+      '.msg-overlay-bubble-header__title',
+      'h2.msg-overlay-bubble-header__title',
+      '.msg-compose-form .msg-entity-lockup__entity-title',
+      // Other variations
       '.msg-conversation-card__title',
       '.msg-thread__link-to-profile',
       '.msg-title-bar .truncate',
       '.msg-thread__link-to-profile span',
-      'h2.msg-overlay-bubble-header__title'
+      '.msg-connections-typeahead__search-result-title',
+      // New compose modal
+      '.msg-compose-pill__text',
+      '.msg-compose__convo-pill span'
     ];
 
     for (const selector of selectors) {
@@ -915,7 +1112,10 @@
       if (el && el.textContent.trim()) {
         // Extract first name
         const fullName = el.textContent.trim();
-        return fullName.split(' ')[0];
+        const firstName = fullName.split(' ')[0];
+        if (firstName && firstName.length > 1) {
+          return firstName;
+        }
       }
     }
 
@@ -928,7 +1128,8 @@
       '.msg-form__contenteditable',
       '.msg-overlay-conversation-bubble .msg-form__contenteditable',
       '[data-artdeco-is-focused] .msg-form__contenteditable',
-      '.msg-form__message-texteditor .msg-form__contenteditable'
+      '.msg-form__message-texteditor .msg-form__contenteditable',
+      '.msg-form__msg-content-container .msg-form__contenteditable'
     ];
 
     for (const selector of inputSelectors) {
@@ -952,49 +1153,11 @@
     dmSidebarVisible = visible !== undefined ? visible : !dmSidebarVisible;
 
     if (dmSidebarVisible) {
-      sidebar.classList.add('visible');
+      sidebar.style.display = 'block';
       renderDmSidebarMessages();
     } else {
-      sidebar.classList.remove('visible');
+      sidebar.style.display = 'none';
     }
-  }
-
-  // Create floating toggle button
-  function createDmToggleButton() {
-    if (document.getElementById('reply-bot-dm-toggle')) return;
-
-    const toggle = document.createElement('button');
-    toggle.id = 'reply-bot-dm-toggle';
-    toggle.innerHTML = '📋';
-    toggle.title = 'Toggle DM Templates';
-    toggle.style.cssText = `
-      position: fixed;
-      right: 20px;
-      top: 50px;
-      width: 44px;
-      height: 44px;
-      border-radius: 50%;
-      background: linear-gradient(135deg, #0077b5 0%, #00a0dc 100%);
-      border: none;
-      color: white;
-      font-size: 20px;
-      cursor: pointer;
-      z-index: 9998;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.2);
-      transition: transform 0.2s;
-    `;
-
-    toggle.addEventListener('mouseenter', () => {
-      toggle.style.transform = 'scale(1.1)';
-    });
-    toggle.addEventListener('mouseleave', () => {
-      toggle.style.transform = 'scale(1)';
-    });
-    toggle.addEventListener('click', () => {
-      toggleDmSidebar();
-    });
-
-    document.body.appendChild(toggle);
   }
 
   // Check if on messaging page and initialize sidebar
@@ -1003,13 +1166,32 @@
                         document.querySelector('.msg-overlay-conversation-bubble') ||
                         document.querySelector('.msg-thread');
 
+    const existingSidebar = document.getElementById('reply-bot-dm-sidebar');
+
     if (isMessaging) {
       loadCannedDmMessages().then(() => {
-        createDmToggleButton();
-        createDmSidebar();
+        if (!existingSidebar) {
+          createDmSidebar();
+        }
+        // Always show and refresh on messaging pages
+        toggleDmSidebar(true);
       });
+    } else {
+      // Hide sidebar when not on messaging
+      if (existingSidebar) {
+        existingSidebar.style.display = 'none';
+      }
     }
   }
+
+  // Periodically refresh recipient name (in case conversation changes)
+  setInterval(() => {
+    const recipientEl = document.getElementById('dm-recipient-name');
+    if (recipientEl && dmSidebarVisible && !dmSidebarMinimized) {
+      const recipientName = getMessagingRecipientName();
+      recipientEl.textContent = recipientName || '(not detected)';
+    }
+  }, 2000);
 
   // Escape HTML helper
   function escapeHtml(text) {
