@@ -578,19 +578,46 @@ class LinkedInDirectClient:
             )
 
             elements = profile_response.get("elements", [])
+            logger.info(f"Profile response elements count: {len(elements)}")
+
             if elements:
-                entity_urn = elements[0].get("entityUrn", "")
+                profile = elements[0]
+                logger.info(f"Profile element keys: {list(profile.keys())}")
+
+                # Try entityUrn first
+                entity_urn = profile.get("entityUrn", "")
                 if entity_urn:
-                    logger.info(f"Got member URN: {entity_urn}")
+                    logger.info(f"Got member URN from entityUrn: {entity_urn}")
                     return entity_urn
 
-            # Fallback to constructed URN
-            logger.warning(f"Could not get URN from dash profiles, using constructed URN")
-            return f"urn:li:fsd_profile:{public_id}"
+                # Try objectUrn
+                object_urn = profile.get("objectUrn", "")
+                if object_urn:
+                    logger.info(f"Got member URN from objectUrn: {object_urn}")
+                    return object_urn
+
+            # Check included entities for member URN
+            included = profile_response.get("included", [])
+            logger.info(f"Checking {len(included)} included entities for member URN")
+
+            for item in included:
+                item_type = item.get("$type", "")
+                # Look for profile-related entities
+                if "Profile" in item_type or "Member" in item_type:
+                    urn = item.get("entityUrn") or item.get("objectUrn")
+                    if urn and ("fsd_profile" in urn or "member" in urn):
+                        logger.info(f"Got member URN from included: {urn}")
+                        return urn
+
+            # Last resort: try to get numeric member ID from the profile
+            # and construct the older urn:li:member format
+            logger.warning(f"Could not get URN from dash profiles for {public_id}")
+            logger.warning(f"Full profile response keys: {profile_response.keys()}")
+            return None  # Return None instead of broken constructed URN
 
         except LinkedInAPIError as e:
-            logger.warning(f"Failed to get member URN: {e}, using constructed URN")
-            return f"urn:li:fsd_profile:{public_id}"
+            logger.warning(f"Failed to get member URN: {e}")
+            return None
 
     async def send_connection_request(self, person_url: str, note: Optional[str] = None) -> bool:
         """Send a connection request to a person"""
@@ -599,6 +626,12 @@ class LinkedInDirectClient:
         try:
             # Get the member URN via dash profiles
             member_urn = await self._get_member_urn(public_id)
+
+            if not member_urn:
+                logger.error(f"Could not get member URN for {public_id}. Cannot send connection request.")
+                return False
+
+            logger.info(f"Sending connection request to {public_id} using URN: {member_urn}")
 
             payload = {
                 "invitee": {
@@ -631,12 +664,40 @@ class LinkedInDirectClient:
             # Get member URN via dash profiles
             member_urn = await self._get_member_urn(public_id)
 
-            if not member_urn or member_urn == f"urn:li:fsd_profile:{public_id}":
-                # If we only got the constructed URN, try to validate it works
-                logger.warning(f"Using constructed URN for messaging: {member_urn}")
+            if not member_urn:
+                raise LinkedInAPIError(f"Could not get member URN for {public_id}. Cannot send message.")
 
-            # Create conversation and send message
+            logger.info(f"Sending message to {public_id} using URN: {member_urn}")
+
+            # Try the newer messaging endpoint format first
             import time
+
+            # Method 1: Try voyagerMessagingDashMessengerConversations (newer)
+            try:
+                payload = {
+                    "dedupeByClientGeneratedToken": False,
+                    "hostRecipientUrn": member_urn,
+                    "message": {
+                        "body": {
+                            "attributes": [],
+                            "text": text
+                        },
+                        "originToken": str(int(time.time() * 1000)),
+                        "renderContentUnions": []
+                    }
+                }
+
+                await self._request(
+                    "POST",
+                    "/voyagerMessagingDashMessengerMessages?action=createMessage",
+                    json_data=payload
+                )
+                logger.info(f"Sent message to {public_id} via voyagerMessagingDash")
+                return True
+            except LinkedInAPIError as e:
+                logger.warning(f"voyagerMessagingDash failed: {e}, trying legacy endpoint")
+
+            # Method 2: Try the legacy messaging/conversations endpoint
             payload = {
                 "keyVersion": "LEGACY_INBOX",
                 "conversationCreate": {
@@ -654,7 +715,7 @@ class LinkedInDirectClient:
                 "/messaging/conversations",
                 json_data=payload
             )
-            logger.info(f"Sent message to {public_id}")
+            logger.info(f"Sent message to {public_id} via legacy endpoint")
             return True
 
         except LinkedInAPIError as e:
