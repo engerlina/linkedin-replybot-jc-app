@@ -392,7 +392,11 @@ class LinkedInDirectClient:
                 return "unknown"
 
             profile = elements[0]
-            logger.debug(f"Dash profile keys: {profile.keys()}")
+            logger.info(f"Dash profile keys: {list(profile.keys())}")
+
+            # Log all profile data for debugging
+            import json
+            logger.info(f"Profile data (truncated): {json.dumps(profile, default=str)[:2000]}")
 
             # Check memberRelationship field
             member_relation = profile.get("memberRelationship", {})
@@ -418,9 +422,18 @@ class LinkedInDirectClient:
 
             # Check included entities for relationship info
             included = response.get("included", [])
+            logger.info(f"Included entities count: {len(included)}")
+
+            # Log all included entity types for debugging
+            entity_types = set()
+            for item in included:
+                item_type = item.get("$type", "unknown")
+                entity_types.add(item_type)
+            logger.info(f"Included entity types: {entity_types}")
+
             for item in included:
                 item_type = item.get("$type", "")
-                if "MemberRelationship" in item_type or "NetworkDistance" in item_type:
+                if "MemberRelationship" in item_type or "NetworkDistance" in item_type or "Connection" in item_type:
                     logger.info(f"Found relationship in included: {item}")
                     rel_type = item.get("memberRelationshipType") or item.get("distance")
                     if rel_type in ("FIRST_DEGREE", "DISTANCE_1"):
