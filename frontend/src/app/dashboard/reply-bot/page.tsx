@@ -72,7 +72,7 @@ export default function ReplyBotPage() {
       loadData();
     } catch (err) {
       console.error('Failed to poll', err);
-      alert('Failed to check post. Please try again.');
+      alert(err instanceof Error ? err.message : 'Failed to check post. Please try again.');
     } finally {
       setPollingPostId(null);
     }

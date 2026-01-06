@@ -99,11 +99,17 @@ async def delete_post(post_id: str, _=Depends(get_current_user)):
 @router.post("/posts/{post_id}/poll")
 async def trigger_poll(post_id: str, _=Depends(get_current_user)):
     """Manually trigger polling for a specific post"""
-    # Check if LINKEDAPI_API_KEY is configured
-    if not settings.LINKEDAPI_API_KEY:
+    # Check if LINKEDAPI_API_KEY is configured (env var or database)
+    api_key_configured = settings.LINKEDAPI_API_KEY
+    if not api_key_configured:
+        # Check database settings
+        db_settings = await prisma.settings.find_first(where={"id": "global"})
+        api_key_configured = db_settings and db_settings.linkedApiKey
+
+    if not api_key_configured:
         raise HTTPException(
             status_code=503,
-            detail="LinkedAPI API key not configured. Please set LINKEDAPI_API_KEY in environment variables."
+            detail="LinkedAPI API key not configured. Please set it in Settings."
         )
 
     post = await prisma.monitoredpost.find_unique(
@@ -137,8 +143,8 @@ async def trigger_poll(post_id: str, _=Depends(get_current_user)):
         logger.error(f"LinkedAPI workflow error for post {post_id}: {e}")
         raise HTTPException(status_code=502, detail=str(e))
     except Exception as e:
-        logger.error(f"Unexpected error polling post {post_id}: {e}")
-        raise HTTPException(status_code=500, detail="Failed to poll post. Check logs for details.")
+        logger.error(f"Unexpected error polling post {post_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Poll failed: {str(e)}")
 
 
 @router.get("/posts/{post_id}/comments")
