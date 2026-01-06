@@ -528,6 +528,127 @@ async def mark_dm_as_sent(lead_id: str, _=Depends(get_current_user)):
     }
 
 
+@router.post("/{lead_id}/debug-connection")
+async def debug_connection_request(lead_id: str, _=Depends(get_current_user)):
+    """Debug connection request - shows detailed API responses"""
+    import logging
+    import json
+    from app.services.linkedin.client import LinkedInDirectClient, LinkedInAuthError, LinkedInAPIError
+
+    logger = logging.getLogger(__name__)
+    debug_log = []
+
+    lead = await prisma.lead.find_unique(
+        where={"id": lead_id},
+        include={"account": {"include": {"cookies": True}}, "post": True}
+    )
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+
+    if not lead.account or not lead.account.cookies or not lead.account.cookies.isValid:
+        raise HTTPException(status_code=400, detail="No valid cookies")
+
+    # Get profile URL
+    profile_url = lead.linkedInUrl
+    debug_log.append(f"Testing connection to: {profile_url}")
+
+    try:
+        client = await LinkedInDirectClient.create(lead.account.id)
+
+        # Extract public ID
+        public_id = client._extract_public_id(profile_url)
+        debug_log.append(f"Extracted public ID: {public_id}")
+
+        # Get member URN
+        debug_log.append("Fetching member URN...")
+        member_urn = await client._get_member_urn(public_id)
+        debug_log.append(f"Member URN: {member_urn}")
+
+        if not member_urn:
+            return {
+                "success": False,
+                "error": "Could not get member URN",
+                "debug_log": debug_log
+            }
+
+        # Now test each connection method individually and capture responses
+        import uuid
+        import httpx
+
+        member_id = member_urn.split(":")[-1] if ":" in member_urn else member_urn
+        tracking_id = str(uuid.uuid4())
+        first_name = lead.name.split()[0] if lead.name else "there"
+        note = f"Hi {first_name}! Saw your comment and would love to connect."
+
+        method_results = []
+
+        # Method 1: verifyQuotaAndConnect
+        try:
+            debug_log.append("\n--- Method 1: verifyQuotaAndConnect ---")
+            payload = {
+                "inviteeProfileUrn": member_urn,
+                "trackingId": tracking_id,
+                "customMessage": note[:300]
+            }
+            debug_log.append(f"Payload: {json.dumps(payload)}")
+
+            response = await client._request(
+                "POST",
+                "/voyagerRelationshipsDashMemberRelationships?action=verifyQuotaAndConnect",
+                json_data=payload
+            )
+            debug_log.append(f"SUCCESS! Response: {json.dumps(response, default=str)[:500]}")
+            method_results.append({"method": "verifyQuotaAndConnect", "status": "success", "response": response})
+        except LinkedInAPIError as e:
+            debug_log.append(f"FAILED: {str(e)}")
+            method_results.append({"method": "verifyQuotaAndConnect", "status": "failed", "error": str(e)})
+
+        # Method 2: normInvitations with InviteeProfile
+        try:
+            debug_log.append("\n--- Method 2: normInvitations (InviteeProfile) ---")
+            payload = {
+                "invitee": {
+                    "com.linkedin.voyager.growth.invitation.InviteeProfile": {
+                        "profileUrn": member_urn
+                    }
+                },
+                "trackingId": str(uuid.uuid4()),
+                "message": note[:300]
+            }
+            debug_log.append(f"Payload: {json.dumps(payload)}")
+
+            response = await client._request(
+                "POST",
+                "/growth/normInvitations",
+                json_data=payload
+            )
+            debug_log.append(f"SUCCESS! Response: {json.dumps(response, default=str)[:500]}")
+            method_results.append({"method": "normInvitations_InviteeProfile", "status": "success", "response": response})
+        except LinkedInAPIError as e:
+            debug_log.append(f"FAILED: {str(e)}")
+            method_results.append({"method": "normInvitations_InviteeProfile", "status": "failed", "error": str(e)})
+
+        # Check if any method succeeded
+        any_success = any(r["status"] == "success" for r in method_results)
+
+        return {
+            "success": any_success,
+            "lead_name": lead.name,
+            "profile_url": profile_url,
+            "member_urn": member_urn,
+            "method_results": method_results,
+            "debug_log": debug_log
+        }
+
+    except Exception as e:
+        debug_log.append(f"ERROR: {str(e)}")
+        return {
+            "success": False,
+            "error": str(e),
+            "debug_log": debug_log
+        }
+
+
 @router.get("/stats/summary")
 async def get_lead_stats(accountId: Optional[str] = None, _=Depends(get_current_user)):
     where = {}
