@@ -48,50 +48,32 @@ async function generateReply(request) {
 
   if (cannedResponse) {
     // Rewrite a canned response
-    systemPrompt = `You are a professional on LinkedIn. You are the AUTHOR of the post, replying to someone who commented.
-Rewrite the given canned response template to sound natural and personalized for this specific comment.
-Keep the core message intact but make it sound fresh and contextually appropriate.
-Keep it brief (1-2 sentences). Do not add hashtags or emojis unless they're in the original.`;
+    systemPrompt = `You are replying to a comment on your LinkedIn post.
+Rewrite the canned response to sound natural for this specific comment.
+ONLY output the reply text itself - nothing else. No labels, no "DM MESSAGE", no extra content.
+Keep it brief (1-2 sentences). Do not use emojis.`;
 
-    userMessage = userContext
-      ? `About me: ${userContext}
-
-My Post: ${postContent}
-
-Comment from ${commenterName}: ${commentText}
+    userMessage = `Comment from ${commenterName}: ${commentText}
 
 Canned response to rewrite: "${cannedResponse}"
 
-Rewrite naturally:`
-      : `My Post: ${postContent}
-
-Comment from ${commenterName}: ${commentText}
-
-Canned response to rewrite: "${cannedResponse}"
-
-Rewrite naturally:`;
+Output ONLY the rewritten reply:`;
   } else {
     // Generate from scratch
-    systemPrompt = replyPrompt || `You are a professional on LinkedIn replying to a comment on YOUR OWN post.
-Generate a warm, appreciative reply (1-2 sentences) that:
-- Thanks them for engaging
-- Responds to their specific point
-- Continues the conversation naturally
-Be genuine and personable as the post author. Do not use hashtags or emojis.`;
+    systemPrompt = replyPrompt || `You are replying to a comment on your LinkedIn post.
+Generate a short, warm reply (1-2 sentences) that acknowledges their comment.
+ONLY output the reply text itself - nothing else. No labels, no headers, no "DM MESSAGE".
+Do not use emojis.`;
 
     userMessage = userContext
       ? `About me: ${userContext}
 
-My Post: ${postContent}
+Comment from ${commenterName}: "${commentText}"
 
-Comment from ${commenterName}: ${commentText}
+Output ONLY the reply:`
+      : `Comment from ${commenterName}: "${commentText}"
 
-Generate a reply:`
-      : `My Post: ${postContent}
-
-Comment from ${commenterName}: ${commentText}
-
-Generate a reply:`;
+Output ONLY the reply:`;
   }
 
   if (provider === 'claude') {
