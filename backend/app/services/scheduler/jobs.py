@@ -59,17 +59,102 @@ async def run_comment_bot_check():
 
 
 async def run_connection_checker():
-    """Check pending connections and send DMs to newly connected leads"""
+    """
+    Check leads and handle connection flow:
+    1. Unknown leads -> check status -> send connection request or DM
+    2. Pending leads -> check if now connected -> send DM
+    3. NotConnected leads -> send connection request
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+
+    # First: Process leads with "unknown" status (new leads from extension)
+    unknown_leads = await prisma.lead.find_many(
+        where={"connectionStatus": "unknown"},
+        include={"account": True, "post": True},
+        take=10
+    )
+
+    for lead in unknown_leads:
+        try:
+            if not lead.account.identificationToken:
+                logger.warning(f"Lead {lead.id} has no identification token, skipping")
+                continue
+
+            client = await LinkedAPIClient.create(lead.account.identificationToken)
+            status = await client.check_connection(lead.linkedInUrl)
+            logger.info(f"Lead {lead.name}: connection status = {status}")
+
+            if status == "connected":
+                # Already connected - update and queue DM
+                await prisma.lead.update(
+                    where={"id": lead.id},
+                    data={
+                        "connectionStatus": "connected",
+                        "connectedAt": datetime.utcnow()
+                    }
+                )
+                logger.info(f"Lead {lead.name} is already connected, will queue DM")
+
+            elif status == "pending":
+                # Connection request already sent
+                await prisma.lead.update(
+                    where={"id": lead.id},
+                    data={"connectionStatus": "pending"}
+                )
+                logger.info(f"Lead {lead.name} has pending connection request")
+
+            else:
+                # Not connected - send connection request
+                await prisma.lead.update(
+                    where={"id": lead.id},
+                    data={"connectionStatus": "notConnected"}
+                )
+
+                if await can_perform(lead.accountId, "connection_request"):
+                    # Get connection note from post or default
+                    note = None
+                    if lead.post and lead.post.ctaMessage:
+                        note = f"Hi {lead.name.split()[0]}! Saw your comment and would love to connect."
+
+                    success = await client.send_connection_request(lead.linkedInUrl, note)
+                    if success:
+                        await prisma.lead.update(
+                            where={"id": lead.id},
+                            data={
+                                "connectionStatus": "pending",
+                                "connectionSentAt": datetime.utcnow()
+                            }
+                        )
+                        await log_activity(lead.accountId, "connection_sent", "success", {
+                            "leadId": lead.id,
+                            "name": lead.name
+                        })
+                        logger.info(f"Sent connection request to {lead.name}")
+
+            await random_delay(30, 60)
+        except Exception as e:
+            logger.error(f"Error processing unknown lead {lead.id}: {e}")
+            await log_activity(lead.accountId if lead.account else None, "connection_check_error", "failed", {
+                "error": str(e),
+                "leadId": lead.id
+            })
+
+    # Second: Check pending connections
     pending_leads = await prisma.lead.find_many(
         where={
             "connectionStatus": "pending",
             "dmStatus": "not_sent"
         },
-        include={"account": True, "post": True}
+        include={"account": True, "post": True},
+        take=10
     )
 
     for lead in pending_leads:
         try:
+            if not lead.account.identificationToken:
+                continue
+
             client = await LinkedAPIClient.create(lead.account.identificationToken)
             status = await client.check_connection(lead.linkedInUrl)
 
@@ -81,18 +166,93 @@ async def run_connection_checker():
                         "connectedAt": datetime.utcnow()
                     }
                 )
-
-                # Queue DM
-                if lead.post and await can_perform(lead.accountId, "message"):
-                    await send_dm_to_lead(lead, lead.post, client)
+                logger.info(f"Lead {lead.name} is now connected!")
 
             await random_delay(30, 60)
         except Exception as e:
+            logger.error(f"Error checking pending lead {lead.id}: {e}")
             await log_activity(lead.accountId, "connection_check_error", "failed", {"error": str(e)})
 
 
 async def run_pending_dm_sender():
-    """Send DMs to connected leads that haven't been messaged yet"""
+    """Send DMs to connected leads from the PendingDm queue"""
+    import logging
+    logger = logging.getLogger(__name__)
+
+    # Process pending DMs
+    pending_dms = await prisma.pendingdm.find_many(
+        where={"status": "pending"},
+        include={
+            "lead": {
+                "include": {"account": True, "post": True}
+            }
+        },
+        take=10
+    )
+
+    for dm in pending_dms:
+        lead = dm.lead
+        if not lead or not lead.account:
+            continue
+
+        # Only send DMs to connected leads
+        if lead.connectionStatus != "connected":
+            logger.info(f"Skipping DM for {lead.name} - not connected yet ({lead.connectionStatus})")
+            continue
+
+        if not await can_perform(lead.accountId, "message"):
+            logger.info(f"Rate limit reached for messages on account {lead.accountId}")
+            continue
+
+        try:
+            if not lead.account.identificationToken:
+                logger.warning(f"Lead {lead.id} account has no identification token")
+                continue
+
+            client = await LinkedAPIClient.create(lead.account.identificationToken)
+
+            # Use edited text if available, otherwise original message
+            message = dm.editedText or dm.message
+
+            success = await client.send_message(lead.linkedInUrl, message)
+
+            if success:
+                await prisma.pendingdm.update(
+                    where={"id": dm.id},
+                    data={
+                        "status": "sent",
+                        "sentAt": datetime.utcnow()
+                    }
+                )
+                await prisma.lead.update(
+                    where={"id": lead.id},
+                    data={
+                        "dmStatus": "sent",
+                        "dmSentAt": datetime.utcnow(),
+                        "dmText": message
+                    }
+                )
+                await log_activity(lead.accountId, "dm_sent", "success", {
+                    "leadId": lead.id,
+                    "name": lead.name
+                })
+                logger.info(f"Sent DM to {lead.name}")
+            else:
+                await prisma.pendingdm.update(
+                    where={"id": dm.id},
+                    data={"status": "failed"}
+                )
+                logger.error(f"Failed to send DM to {lead.name}")
+
+            await random_delay(120, 300)
+        except Exception as e:
+            logger.error(f"Error sending DM to {lead.name}: {e}")
+            await log_activity(lead.accountId, "dm_error", "failed", {
+                "error": str(e),
+                "leadId": lead.id
+            })
+
+    # Also process leads without PendingDm but with connected status and a post CTA
     leads = await prisma.lead.find_many(
         where={
             "connectionStatus": "connected",
@@ -103,7 +263,14 @@ async def run_pending_dm_sender():
     )
 
     for lead in leads:
-        if lead.post and await can_perform(lead.accountId, "message"):
+        # Check if there's already a pending DM for this lead
+        existing_dm = await prisma.pendingdm.find_first(
+            where={"leadId": lead.id}
+        )
+        if existing_dm:
+            continue  # Already has a DM record
+
+        if lead.post and lead.post.ctaMessage and await can_perform(lead.accountId, "message"):
             try:
                 client = await LinkedAPIClient.create(lead.account.identificationToken)
                 await send_dm_to_lead(lead, lead.post, client)
