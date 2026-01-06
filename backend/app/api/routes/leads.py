@@ -66,11 +66,46 @@ async def delete_lead(lead_id: str, _=Depends(get_current_user)):
     return {"success": True}
 
 
+def parse_connection_from_headline(headline: str) -> str:
+    """
+    Parse connection degree from LinkedIn headline.
+
+    LinkedIn headlines often contain connection indicators like:
+    - "1st" or "· 1st" for 1st degree connections
+    - "2nd" or "· 2nd" for 2nd degree connections
+    - "3rd" or "· 3rd" for 3rd degree connections
+
+    Returns: "connected", "notConnected", or "unknown"
+    """
+    import re
+    if not headline:
+        return "unknown"
+
+    # Normalize the headline (remove extra whitespace and control chars)
+    headline = ' '.join(headline.split())
+
+    # Check for 1st degree connection (connected)
+    if re.search(r'\b1st\b', headline, re.IGNORECASE):
+        return "connected"
+
+    # Check for 2nd or 3rd degree (not directly connected)
+    if re.search(r'\b2nd\b', headline, re.IGNORECASE) or re.search(r'\b3rd\b', headline, re.IGNORECASE):
+        return "notConnected"
+
+    # Check for "Out of network" or similar
+    if re.search(r'out of network', headline, re.IGNORECASE):
+        return "notConnected"
+
+    return "unknown"
+
+
 @router.post("/{lead_id}/check-connection")
 async def check_lead_connection(lead_id: str, _=Depends(get_current_user)):
     """Manually check and update connection status for a single lead"""
     from datetime import datetime
     from app.services.linkedin.client import LinkedInDirectClient, LinkedInAPIError, LinkedInAuthError
+    import logging
+    logger = logging.getLogger(__name__)
 
     lead = await prisma.lead.find_unique(
         where={"id": lead_id},
@@ -82,44 +117,56 @@ async def check_lead_connection(lead_id: str, _=Depends(get_current_user)):
     if not lead.account:
         raise HTTPException(status_code=400, detail="Account not found")
 
-    # Check for cookies
-    if not lead.account.cookies or not lead.account.cookies.isValid:
-        raise HTTPException(
-            status_code=400,
-            detail="LinkedIn cookies not synced or expired. Please sync from Chrome extension."
-        )
+    # FIRST: Check headline for connection degree (most reliable)
+    headline_status = parse_connection_from_headline(lead.headline)
+    logger.info(f"Headline parsing for {lead.name}: '{lead.headline}' -> {headline_status}")
 
-    # Validate LinkedIn URL
-    if not lead.linkedInUrl or not lead.linkedInUrl.strip():
-        raise HTTPException(
-            status_code=400,
-            detail="Lead has no LinkedIn URL. Cannot check connection status."
-        )
+    if headline_status != "unknown":
+        # We found connection status from headline - use it!
+        status = headline_status
+        logger.info(f"Using headline-based connection status: {status}")
+    else:
+        # Fallback to API check
+        # Check for cookies
+        if not lead.account.cookies or not lead.account.cookies.isValid:
+            raise HTTPException(
+                status_code=400,
+                detail="LinkedIn cookies not synced or expired. Please sync from Chrome extension."
+            )
 
-    try:
-        client = await LinkedInDirectClient.create(lead.account.id)
-        status = await client.check_connection(lead.linkedInUrl)
+        # Validate LinkedIn URL
+        if not lead.linkedInUrl or not lead.linkedInUrl.strip():
+            raise HTTPException(
+                status_code=400,
+                detail="Lead has no LinkedIn URL. Cannot check connection status."
+            )
 
-        # Update lead with new status
-        update_data = {"connectionStatus": status}
-        if status == "connected":
-            update_data["connectedAt"] = datetime.utcnow()
+        try:
+            client = await LinkedInDirectClient.create(lead.account.id)
+            status = await client.check_connection(lead.linkedInUrl)
+            logger.info(f"API-based connection status for {lead.name}: {status}")
+        except LinkedInAuthError as e:
+            raise HTTPException(status_code=401, detail=f"LinkedIn auth error: {str(e)}")
+        except Exception as e:
+            logger.warning(f"API check failed, using unknown: {e}")
+            status = "unknown"
 
-        updated_lead = await prisma.lead.update(
-            where={"id": lead_id},
-            data=update_data,
-            include={"account": True, "post": True}
-        )
+    # Update lead with new status
+    update_data = {"connectionStatus": status}
+    if status == "connected":
+        update_data["connectedAt"] = datetime.utcnow()
 
-        return {
-            "success": True,
-            "connectionStatus": status,
-            "lead": updated_lead
-        }
-    except LinkedInAuthError as e:
-        raise HTTPException(status_code=401, detail=f"LinkedIn auth error: {str(e)}")
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=f"LinkedIn API error: {str(e)}")
+    updated_lead = await prisma.lead.update(
+        where={"id": lead_id},
+        data=update_data,
+        include={"account": True, "post": True}
+    )
+
+    return {
+        "success": True,
+        "connectionStatus": status,
+        "lead": updated_lead
+    }
 
 
 @router.post("/{lead_id}/send-connection")
