@@ -10,14 +10,18 @@ from app.utils.humanizer import random_delay
 
 async def log_activity(account_id: str, action: str, status: str, details: dict = None):
     """Log an activity"""
-    await prisma.activitylog.create(
-        data={
-            "accountId": account_id,
-            "action": action,
-            "status": status,
-            "details": details or {}
-        }
-    )
+    from prisma import Json
+
+    data = {
+        "action": action,
+        "status": status,
+        "details": Json(details) if details else None
+    }
+
+    if account_id:
+        data["account"] = {"connect": {"id": account_id}}
+
+    await prisma.activitylog.create(data=data)
 
 
 async def run_reply_bot_poll():
