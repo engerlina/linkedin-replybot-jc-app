@@ -1,7 +1,8 @@
 import logging
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 
@@ -157,6 +158,16 @@ app.include_router(comment_bot.router, prefix="/api/comment-bot", tags=["comment
 app.include_router(leads.router, prefix="/api/leads", tags=["leads"])
 app.include_router(logs.router, prefix="/api/logs", tags=["logs"])
 app.include_router(stats.router, prefix="/api/stats", tags=["stats"])
+
+
+# Global exception handler to ensure CORS headers on errors
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    logger.error(f"Unhandled exception: {exc}", exc_info=True)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": str(exc)},
+    )
 
 
 @app.get("/health")

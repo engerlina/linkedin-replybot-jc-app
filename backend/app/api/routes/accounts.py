@@ -1,10 +1,13 @@
+import logging
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
+from prisma.errors import RecordNotFoundError
 
 from app.api.routes.auth import get_current_user
 from app.db.client import prisma
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
@@ -69,11 +72,20 @@ async def create_account(req: CreateAccountRequest, _=Depends(get_current_user))
 @router.patch("/{account_id}")
 async def update_account(account_id: str, req: UpdateAccountRequest, _=Depends(get_current_user)):
     data = req.model_dump(exclude_none=True)
-    account = await prisma.linkedinaccount.update(
-        where={"id": account_id},
-        data=data
-    )
-    return account
+    if not data:
+        raise HTTPException(status_code=400, detail="No fields to update")
+
+    try:
+        account = await prisma.linkedinaccount.update(
+            where={"id": account_id},
+            data=data
+        )
+        return account
+    except RecordNotFoundError:
+        raise HTTPException(status_code=404, detail="Account not found")
+    except Exception as e:
+        logger.error(f"Failed to update account {account_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.delete("/{account_id}")
