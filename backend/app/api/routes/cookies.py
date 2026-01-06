@@ -124,8 +124,8 @@ async def get_cookie_status(
             "accountName": account.name,
             "hasCookies": cookie is not None,
             "isValid": cookie.isValid if cookie else False,
-            "lastSyncedAt": cookie.capturedAt if cookie else None,
-            "lastUsedAt": cookie.lastUsedAt if cookie else None,
+            "capturedAt": cookie.capturedAt.isoformat() if cookie and cookie.capturedAt else None,
+            "lastUsedAt": cookie.lastUsedAt.isoformat() if cookie and cookie.lastUsedAt else None,
             "lastError": cookie.lastError if cookie else None
         }
 
@@ -135,18 +135,20 @@ async def get_cookie_status(
         order={"createdAt": "asc"}
     )
 
-    return [
-        {
-            "accountId": a.id,
-            "accountName": a.name,
-            "hasCookies": a.cookies is not None,
-            "isValid": a.cookies.isValid if a.cookies else False,
-            "lastSyncedAt": a.cookies.capturedAt if a.cookies else None,
-            "lastUsedAt": a.cookies.lastUsedAt if a.cookies else None,
-            "lastError": a.cookies.lastError if a.cookies else None
-        }
-        for a in accounts
-    ]
+    return {
+        "accounts": [
+            {
+                "accountId": a.id,
+                "accountName": a.name,
+                "hasCookies": a.cookies is not None,
+                "isValid": a.cookies.isValid if a.cookies else False,
+                "capturedAt": a.cookies.capturedAt.isoformat() if a.cookies and a.cookies.capturedAt else None,
+                "lastUsedAt": a.cookies.lastUsedAt.isoformat() if a.cookies and a.cookies.lastUsedAt else None,
+                "lastError": a.cookies.lastError if a.cookies else None
+            }
+            for a in accounts
+        ]
+    }
 
 
 @router.post("/validate/{account_id}")
@@ -189,8 +191,9 @@ async def validate_cookies(account_id: str, _=Depends(get_current_user)):
         )
 
         return {
-            "valid": True,
-            "profile": profile,
+            "success": True,
+            "profileName": profile.get("firstName", "") + " " + profile.get("lastName", "") if profile else None,
+            "publicIdentifier": profile.get("publicIdentifier") if profile else None,
             "message": "Cookies are valid!"
         }
 
