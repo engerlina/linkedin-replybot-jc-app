@@ -51,12 +51,27 @@ async function loadSettings() {
   if (settings.backendUrl) document.getElementById('backendUrl').value = settings.backendUrl;
   if (settings.backendPassword) document.getElementById('backendPassword').value = settings.backendPassword;
 
-  // Canned Responses
-  const cannedResponses = settings.cannedResponses || [
-    "Thanks for the comment! I'll DM you with more details.",
-    "Great question! Let me send you some resources via DM.",
-    "Appreciate you reaching out! Check your DMs."
-  ];
+  // Canned Responses - migrate old format if needed
+  let cannedResponses = settings.cannedResponses || [];
+
+  // Migrate old string format to new object format
+  if (cannedResponses.length > 0 && typeof cannedResponses[0] === 'string') {
+    cannedResponses = cannedResponses.map(text => ({
+      text,
+      autoConnect: true,
+      addToFlow: true
+    }));
+  }
+
+  // Default responses if empty
+  if (cannedResponses.length === 0) {
+    cannedResponses = [
+      { text: "Thanks for the comment! I'll DM you with more details.", autoConnect: true, addToFlow: true },
+      { text: "Great question! Let me send you some resources via DM.", autoConnect: true, addToFlow: true },
+      { text: "Appreciate you reaching out! Check your DMs.", autoConnect: true, addToFlow: true }
+    ];
+  }
+
   renderCannedResponses(cannedResponses);
 
   // Update model options
@@ -171,11 +186,28 @@ function renderCannedResponses(responses) {
   container.innerHTML = '';
 
   responses.forEach((response, index) => {
+    // Handle both old string format and new object format
+    const text = typeof response === 'string' ? response : response.text;
+    const autoConnect = typeof response === 'object' ? response.autoConnect : true;
+    const addToFlow = typeof response === 'object' ? response.addToFlow : true;
+
     const item = document.createElement('div');
     item.className = 'canned-item';
     item.innerHTML = `
-      <input type="text" value="${escapeHtml(response)}" data-index="${index}">
-      <button class="remove-btn" data-index="${index}">X</button>
+      <div class="canned-item-row">
+        <input type="text" value="${escapeHtml(text)}" data-index="${index}">
+        <button class="remove-btn" data-index="${index}">X</button>
+      </div>
+      <div class="canned-item-options">
+        <label>
+          <input type="checkbox" data-option="autoConnect" ${autoConnect ? 'checked' : ''}>
+          Auto-connect
+        </label>
+        <label>
+          <input type="checkbox" data-option="addToFlow" ${addToFlow ? 'checked' : ''}>
+          Add to DM flow
+        </label>
+      </div>
     `;
     container.appendChild(item);
   });
@@ -197,13 +229,25 @@ function addCannedResponse() {
   const item = document.createElement('div');
   item.className = 'canned-item';
   item.innerHTML = `
-    <input type="text" value="" data-index="${index}" placeholder="New canned response...">
-    <button class="remove-btn" data-index="${index}">X</button>
+    <div class="canned-item-row">
+      <input type="text" value="" data-index="${index}" placeholder="New canned response...">
+      <button class="remove-btn" data-index="${index}">X</button>
+    </div>
+    <div class="canned-item-options">
+      <label>
+        <input type="checkbox" data-option="autoConnect" checked>
+        Auto-connect
+      </label>
+      <label>
+        <input type="checkbox" data-option="addToFlow" checked>
+        Add to DM flow
+      </label>
+    </div>
   `;
   container.appendChild(item);
 
   // Focus the new input
-  item.querySelector('input').focus();
+  item.querySelector('input[type="text"]').focus();
 
   // Add remove handler
   item.querySelector('.remove-btn').addEventListener('click', () => {
@@ -212,10 +256,15 @@ function addCannedResponse() {
 }
 
 async function saveCannedResponses() {
-  const inputs = document.querySelectorAll('#cannedList input');
-  const responses = Array.from(inputs)
-    .map(input => input.value.trim())
-    .filter(v => v.length > 0);
+  const items = document.querySelectorAll('#cannedList .canned-item');
+  const responses = Array.from(items)
+    .map(item => {
+      const text = item.querySelector('input[type="text"]').value.trim();
+      const autoConnect = item.querySelector('input[data-option="autoConnect"]').checked;
+      const addToFlow = item.querySelector('input[data-option="addToFlow"]').checked;
+      return { text, autoConnect, addToFlow };
+    })
+    .filter(r => r.text.length > 0);
 
   await chrome.storage.sync.set({ cannedResponses: responses });
 

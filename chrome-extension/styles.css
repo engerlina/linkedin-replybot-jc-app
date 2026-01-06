@@ -70,6 +70,10 @@
 }
 
 .reply-bot-dropdown-item {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
   padding: 10px 14px;
   font-size: 13px;
   color: #333;
@@ -84,6 +88,30 @@
 
 .reply-bot-dropdown-item:hover {
   background: #f3f6f8;
+}
+
+.reply-bot-dropdown-text {
+  flex: 1;
+  min-width: 150px;
+}
+
+.reply-bot-badge {
+  display: inline-block;
+  padding: 2px 6px;
+  font-size: 10px;
+  font-weight: 600;
+  border-radius: 3px;
+  white-space: nowrap;
+}
+
+.reply-bot-badge.connect {
+  background: #e3f2fd;
+  color: #1565c0;
+}
+
+.reply-bot-badge.flow {
+  background: #e8f5e9;
+  color: #2e7d32;
 }
 
 .reply-bot-dropdown-empty {

@@ -16,6 +16,13 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true;
   }
 
+  if (request.action === 'addToFlowWithConnect') {
+    addToFlowWithConnect(request)
+      .then(result => sendResponse({ success: true, ...result }))
+      .catch(error => sendResponse({ success: false, error: error.message }));
+    return true;
+  }
+
   if (request.action === 'getSettings') {
     chrome.storage.sync.get(null, (settings) => {
       sendResponse({ success: true, settings });
@@ -245,4 +252,161 @@ async function loginToBackend(backendUrl, password) {
   await chrome.storage.sync.set({ backendToken: token });
 
   return token;
+}
+
+// Add to flow and optionally send connection request
+async function addToFlowWithConnect(request) {
+  const settings = await chrome.storage.sync.get(['backendUrl', 'backendPassword', 'backendToken']);
+  let { backendUrl, backendPassword, backendToken } = settings;
+
+  if (!backendUrl) {
+    throw new Error('Backend URL not configured');
+  }
+
+  backendUrl = backendUrl.replace(/\/$/, '');
+
+  // Get or refresh token
+  if (!backendToken) {
+    if (!backendPassword) {
+      throw new Error('Backend password not configured');
+    }
+    backendToken = await loginToBackend(backendUrl, backendPassword);
+  }
+
+  const { commenterUrl, commenterName, commenterHeadline, postUrl, replyText, autoConnect, addToFlow } = request;
+
+  console.log('[LinkedIn Reply Bot] Processing with options:', { autoConnect, addToFlow });
+
+  let result = { connected: false, addedToFlow: false, leadId: null };
+  let errors = [];
+
+  // Helper to make authenticated requests with retry
+  async function makeRequest(url, options) {
+    let response = await fetch(url, {
+      ...options,
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${backendToken}`,
+        ...options.headers
+      }
+    });
+
+    if (response.status === 401) {
+      // Token expired, refresh and retry
+      backendToken = await loginToBackend(backendUrl, backendPassword);
+      response = await fetch(url, {
+        ...options,
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${backendToken}`,
+          ...options.headers
+        }
+      });
+    }
+
+    return response;
+  }
+
+  // Step 1: Add to flow (creates lead)
+  if (addToFlow) {
+    try {
+      const response = await makeRequest(`${backendUrl}/api/reply-bot/add-lead`, {
+        method: 'POST',
+        body: JSON.stringify({
+          commenterUrl,
+          commenterName,
+          commenterHeadline,
+          postUrl,
+          matchedKeyword: 'canned',
+          replyText
+        })
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        result.addedToFlow = true;
+        result.leadId = data.leadId;
+        console.log('[LinkedIn Reply Bot] Added to flow:', data);
+      } else {
+        const data = await response.json();
+        errors.push(`Add to flow: ${data.detail || 'Failed'}`);
+      }
+    } catch (e) {
+      errors.push(`Add to flow: ${e.message}`);
+    }
+  }
+
+  // Step 2: Send connection request if we have a lead ID
+  if (autoConnect && result.leadId) {
+    try {
+      const response = await makeRequest(`${backendUrl}/api/leads/${result.leadId}/send-connection`, {
+        method: 'POST'
+      });
+
+      if (response.ok) {
+        result.connected = true;
+        console.log('[LinkedIn Reply Bot] Connection request sent');
+      } else {
+        const data = await response.json();
+        // Don't treat "already connected" as an error
+        if (data.detail && data.detail.includes('Already connected')) {
+          result.connected = true;
+        } else {
+          errors.push(`Connection: ${data.detail || 'Failed'}`);
+        }
+      }
+    } catch (e) {
+      errors.push(`Connection: ${e.message}`);
+    }
+  } else if (autoConnect && !result.leadId) {
+    // If we didn't add to flow but want to connect, we need to add the lead first
+    try {
+      // First add to flow to get lead ID
+      const addResponse = await makeRequest(`${backendUrl}/api/reply-bot/add-lead`, {
+        method: 'POST',
+        body: JSON.stringify({
+          commenterUrl,
+          commenterName,
+          commenterHeadline,
+          postUrl,
+          matchedKeyword: 'canned',
+          replyText
+        })
+      });
+
+      if (addResponse.ok) {
+        const data = await addResponse.json();
+        result.leadId = data.leadId;
+
+        // Now send connection
+        const connectResponse = await makeRequest(`${backendUrl}/api/leads/${result.leadId}/send-connection`, {
+          method: 'POST'
+        });
+
+        if (connectResponse.ok) {
+          result.connected = true;
+        } else {
+          const connectData = await connectResponse.json();
+          if (connectData.detail && connectData.detail.includes('Already connected')) {
+            result.connected = true;
+          } else {
+            errors.push(`Connection: ${connectData.detail || 'Failed'}`);
+          }
+        }
+      } else {
+        const data = await addResponse.json();
+        errors.push(`Add lead for connection: ${data.detail || 'Failed'}`);
+      }
+    } catch (e) {
+      errors.push(`Connection flow: ${e.message}`);
+    }
+  }
+
+  // If we had errors but some things succeeded, include them as warnings
+  if (errors.length > 0) {
+    result.warnings = errors;
+    console.warn('[LinkedIn Reply Bot] Warnings:', errors);
+  }
+
+  return result;
 }

@@ -9,17 +9,33 @@
 
   console.log('[LinkedIn Reply Bot] Content script loaded');
 
-  // Canned responses (loaded from settings)
+  // Canned responses (loaded from settings) - now objects with {text, autoConnect, addToFlow}
   let cannedResponses = [];
 
   // Load canned responses
   async function loadCannedResponses() {
     const settings = await chrome.storage.sync.get(['cannedResponses']);
-    cannedResponses = settings.cannedResponses || [
-      "Thanks for the comment! I'll DM you with more details.",
-      "Great question! Let me send you some resources via DM.",
-      "Appreciate you reaching out! Check your DMs."
-    ];
+    let responses = settings.cannedResponses || [];
+
+    // Migrate old string format to new object format
+    if (responses.length > 0 && typeof responses[0] === 'string') {
+      responses = responses.map(text => ({
+        text,
+        autoConnect: true,
+        addToFlow: true
+      }));
+    }
+
+    // Default responses if empty
+    if (responses.length === 0) {
+      responses = [
+        { text: "Thanks for the comment! I'll DM you with more details.", autoConnect: true, addToFlow: true },
+        { text: "Great question! Let me send you some resources via DM.", autoConnect: true, addToFlow: true },
+        { text: "Appreciate you reaching out! Check your DMs.", autoConnect: true, addToFlow: true }
+      ];
+    }
+
+    cannedResponses = responses;
   }
   loadCannedResponses();
 
@@ -135,11 +151,12 @@
     // Dropdown item click
     dropdown.addEventListener('click', (e) => {
       const item = e.target.closest('.reply-bot-dropdown-item');
-      if (item && item.dataset.response) {
+      if (item && item.dataset.index !== undefined) {
         e.preventDefault();
         e.stopPropagation();
         dropdown.style.display = 'none';
-        handleReply(comment, button, item.dataset.response);
+        const cannedObj = cannedResponses[parseInt(item.dataset.index)];
+        handleReply(comment, button, cannedObj);
       }
     });
 
@@ -156,11 +173,22 @@
     dropdown.innerHTML = '';
 
     cannedResponses.forEach((response, i) => {
+      const text = typeof response === 'string' ? response : response.text;
+      const autoConnect = typeof response === 'object' ? response.autoConnect : false;
+      const addToFlow = typeof response === 'object' ? response.addToFlow : false;
+
       const item = document.createElement('div');
       item.className = 'reply-bot-dropdown-item';
-      item.textContent = response.length > 50 ? response.substring(0, 50) + '...' : response;
-      item.dataset.response = response;
       item.dataset.index = i;
+
+      // Build display with badges
+      let badges = '';
+      if (autoConnect) badges += '<span class="reply-bot-badge connect">+Connect</span>';
+      if (addToFlow) badges += '<span class="reply-bot-badge flow">+Flow</span>';
+
+      const displayText = text.length > 40 ? text.substring(0, 40) + '...' : text;
+      item.innerHTML = `<span class="reply-bot-dropdown-text">${displayText}</span>${badges}`;
+
       dropdown.appendChild(item);
     });
 
@@ -173,12 +201,29 @@
   }
 
   // Handle reply generation
+  // cannedResponse can be: null (AI generate), string (legacy), or object {text, autoConnect, addToFlow}
   async function handleReply(comment, button, cannedResponse) {
     if (button.classList.contains('loading')) return;
 
     const originalText = button.querySelector('span').textContent;
     button.classList.add('loading');
-    button.querySelector('span').textContent = cannedResponse ? 'Rewriting...' : 'Generating...';
+
+    // Extract canned response options
+    let cannedText = null;
+    let autoConnect = false;
+    let addToFlow = false;
+
+    if (cannedResponse) {
+      if (typeof cannedResponse === 'string') {
+        cannedText = cannedResponse;
+      } else {
+        cannedText = cannedResponse.text;
+        autoConnect = cannedResponse.autoConnect || false;
+        addToFlow = cannedResponse.addToFlow || false;
+      }
+    }
+
+    button.querySelector('span').textContent = cannedText ? 'Rewriting...' : 'Generating...';
 
     try {
       // Extract info
@@ -192,7 +237,9 @@
 
       console.log('[LinkedIn Reply Bot] Generating reply for:', {
         commenter: commenterName,
-        comment: commentText.substring(0, 50) + '...'
+        comment: commentText.substring(0, 50) + '...',
+        autoConnect,
+        addToFlow
       });
 
       // Generate reply via background script
@@ -202,7 +249,7 @@
         commentText,
         commenterName,
         isOwnPost: true,
-        cannedResponse
+        cannedResponse: cannedText
       });
 
       if (!response.success) {
@@ -217,14 +264,47 @@
 
       button.querySelector('span').textContent = 'Done!';
 
-      // Show "Add to Flow" button
-      showAddToFlowButton(comment, {
+      const flowData = {
         commenterUrl,
         commenterName,
         commenterHeadline,
         postUrl,
         replyText: reply
-      });
+      };
+
+      // Auto-actions based on canned response settings
+      if (autoConnect || addToFlow) {
+        button.querySelector('span').textContent = 'Processing...';
+
+        try {
+          const result = await chrome.runtime.sendMessage({
+            action: 'addToFlowWithConnect',
+            ...flowData,
+            autoConnect,
+            addToFlow
+          });
+
+          if (!result.success) {
+            throw new Error(result.error);
+          }
+
+          // Show success status
+          let statusMsg = [];
+          if (result.connected) statusMsg.push('Connected');
+          if (result.addedToFlow) statusMsg.push('Added to flow');
+          button.querySelector('span').textContent = statusMsg.join(' + ') || 'Done!';
+
+        } catch (error) {
+          console.error('[LinkedIn Reply Bot] Auto-action error:', error);
+          // Show error but don't block - reply was still sent
+          button.querySelector('span').textContent = 'Reply sent (action failed)';
+          // Still show manual button as fallback
+          showAddToFlowButton(comment, flowData);
+        }
+      } else {
+        // Show manual "Add to Flow" button
+        showAddToFlowButton(comment, flowData);
+      }
 
     } catch (error) {
       console.error('[LinkedIn Reply Bot] Error:', error);
@@ -234,7 +314,7 @@
       setTimeout(() => {
         button.classList.remove('loading');
         button.querySelector('span').textContent = originalText;
-      }, 2000);
+      }, 3000);
     }
   }
 

@@ -165,15 +165,21 @@
 
     .canned-item {
       display: flex;
-      align-items: center;
-      gap: 8px;
-      padding: 8px;
+      flex-direction: column;
+      gap: 6px;
+      padding: 10px;
       background: #f5f5f5;
       border-radius: 6px;
       margin-bottom: 8px;
     }
 
-    .canned-item input {
+    .canned-item-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .canned-item input[type="text"] {
       flex: 1;
     }
 
@@ -185,6 +191,28 @@
       border-radius: 4px;
       cursor: pointer;
       font-size: 11px;
+    }
+
+    .canned-item-options {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding-left: 4px;
+    }
+
+    .canned-item-options label {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 11px;
+      color: #666;
+      margin: 0;
+      cursor: pointer;
+    }
+
+    .canned-item-options input[type="checkbox"] {
+      width: auto;
+      margin: 0;
     }
 
     .add-canned-btn {
