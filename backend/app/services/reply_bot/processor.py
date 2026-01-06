@@ -1,6 +1,6 @@
 from datetime import datetime
 from app.db.client import prisma
-from app.services.linkedapi.client import LinkedAPIClient
+from app.services.linkedin.client import LinkedInDirectClient
 from app.services.ai.client import generate_reply_comment
 from app.services.reply_bot.messenger import send_dm_to_lead, send_connection_to_lead
 from app.utils.rate_limiter import can_perform, record_action
@@ -21,7 +21,7 @@ async def log_activity(account_id: str, action: str, status: str, details: dict 
     )
 
 
-async def process_keyword_match(post, comment, client: LinkedAPIClient):
+async def process_keyword_match(post, comment, client: LinkedInDirectClient):
     """Process a comment that matched a keyword"""
     account_id = post.accountId
 

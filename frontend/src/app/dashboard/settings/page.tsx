@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { api, Settings, LinkedInAccount } from '@/lib/api';
+import { api, Settings, LinkedInAccount, CookieStatus } from '@/lib/api';
 import { useAuth } from '@/hooks/useAuth';
 
 export default function SettingsPage() {
@@ -9,11 +9,11 @@ export default function SettingsPage() {
 
   const [settings, setSettings] = useState<Settings | null>(null);
   const [accounts, setAccounts] = useState<LinkedInAccount[]>([]);
+  const [cookieStatuses, setCookieStatuses] = useState<CookieStatus[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [showAccountForm, setShowAccountForm] = useState(false);
-  const [editingAccountId, setEditingAccountId] = useState<string | null>(null);
-  const [editToken, setEditToken] = useState('');
+  const [validatingAccountId, setValidatingAccountId] = useState<string | null>(null);
 
   useEffect(() => {
     loadData();
@@ -21,16 +21,40 @@ export default function SettingsPage() {
 
   const loadData = async () => {
     try {
-      const [settingsData, accountsData] = await Promise.all([
+      const [settingsData, accountsData, cookieData] = await Promise.all([
         api.getSettings(),
         api.getAccounts(),
+        api.getCookieStatus(),
       ]);
       setSettings(settingsData);
       setAccounts(accountsData);
+      setCookieStatuses(cookieData.accounts || []);
     } catch (err) {
       console.error('Failed to load settings', err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const getCookieStatusForAccount = (accountId: string): CookieStatus | undefined => {
+    return cookieStatuses.find(cs => cs.accountId === accountId);
+  };
+
+  const handleValidateCookies = async (accountId: string) => {
+    setValidatingAccountId(accountId);
+    try {
+      const result = await api.validateCookies(accountId);
+      if (result.success) {
+        alert(`Cookies valid! Connected as: ${result.profileName || result.publicIdentifier || 'Unknown'}`);
+      } else {
+        alert(`Validation failed: ${result.message || 'Unknown error'}`);
+      }
+      loadData();
+    } catch (err) {
+      console.error('Validation failed', err);
+      alert(err instanceof Error ? err.message : 'Validation failed');
+    } finally {
+      setValidatingAccountId(null);
     }
   };
 
@@ -54,23 +78,6 @@ export default function SettingsPage() {
       loadData();
     } catch (err) {
       console.error('Failed to delete account', err);
-    }
-  };
-
-  const handleEditAccount = (account: LinkedInAccount) => {
-    setEditingAccountId(account.id);
-    setEditToken(account.identificationToken || '');
-  };
-
-  const handleSaveAccountToken = async (accountId: string) => {
-    try {
-      await api.updateAccount(accountId, { identificationToken: editToken });
-      setEditingAccountId(null);
-      setEditToken('');
-      loadData();
-    } catch (err) {
-      console.error('Failed to update account', err);
-      alert(err instanceof Error ? err.message : 'Failed to update account');
     }
   };
 
@@ -109,109 +116,97 @@ export default function SettingsPage() {
             {accounts.length === 0 ? (
               <p className="text-gray-400">No accounts configured</p>
             ) : (
-              accounts.map((account) => (
-                <div
-                  key={account.id}
-                  className="bg-gray-700 rounded p-4"
-                >
-                  <div className="flex justify-between items-center">
-                    <div>
-                      <p className="text-white font-medium">{account.name}</p>
-                      <p className="text-gray-400 text-sm">
-                        Token: ****{account.identificationToken?.slice(-4) || '****'}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span
-                        className={`px-2 py-1 rounded text-xs ${
-                          account.isActive ? 'bg-green-600' : 'bg-gray-600'
-                        } text-white`}
-                      >
-                        {account.isActive ? 'Active' : 'Inactive'}
-                      </span>
-                      <button
-                        onClick={() => handleEditAccount(account)}
-                        className="text-blue-400 hover:text-blue-300 text-sm"
-                      >
-                        Edit
-                      </button>
-                      <button
-                        onClick={() => handleDeleteAccount(account.id)}
-                        className="text-red-400 hover:text-red-300 text-sm"
-                      >
-                        Delete
-                      </button>
-                    </div>
-                  </div>
-                  {editingAccountId === account.id && (
-                    <div className="mt-3 pt-3 border-t border-gray-600">
-                      <label className="block text-gray-300 text-sm mb-1">
-                        Identification Token
-                      </label>
-                      <div className="flex gap-2">
-                        <input
-                          type="password"
-                          value={editToken}
-                          onChange={(e) => setEditToken(e.target.value)}
-                          className="flex-1 px-3 py-2 bg-gray-600 border border-gray-500 rounded text-white text-sm"
-                          placeholder="Enter new identification token"
-                        />
-                        <button
-                          onClick={() => handleSaveAccountToken(account.id)}
-                          className="px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm"
+              accounts.map((account) => {
+                const cookieStatus = getCookieStatusForAccount(account.id);
+                return (
+                  <div
+                    key={account.id}
+                    className="bg-gray-700 rounded p-4"
+                  >
+                    <div className="flex justify-between items-start">
+                      <div className="flex-1">
+                        <p className="text-white font-medium">{account.name}</p>
+                        {/* Cookie Sync Status */}
+                        <div className="mt-2 space-y-1">
+                          {cookieStatus?.hasCookies ? (
+                            <>
+                              <div className="flex items-center gap-2">
+                                <span
+                                  className={`inline-block w-2 h-2 rounded-full ${
+                                    cookieStatus.isValid ? 'bg-green-500' : 'bg-red-500'
+                                  }`}
+                                />
+                                <span className={`text-sm ${cookieStatus.isValid ? 'text-green-400' : 'text-red-400'}`}>
+                                  {cookieStatus.isValid ? 'Cookies synced & valid' : 'Cookies expired'}
+                                </span>
+                              </div>
+                              {cookieStatus.capturedAt && (
+                                <p className="text-gray-400 text-xs">
+                                  Last synced: {new Date(cookieStatus.capturedAt).toLocaleString()}
+                                </p>
+                              )}
+                              {cookieStatus.lastError && (
+                                <p className="text-red-400 text-xs">
+                                  Error: {cookieStatus.lastError}
+                                </p>
+                              )}
+                            </>
+                          ) : (
+                            <div className="flex items-center gap-2">
+                              <span className="inline-block w-2 h-2 rounded-full bg-yellow-500" />
+                              <span className="text-yellow-400 text-sm">
+                                No cookies synced - use Chrome extension
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span
+                          className={`px-2 py-1 rounded text-xs ${
+                            account.isActive ? 'bg-green-600' : 'bg-gray-600'
+                          } text-white`}
                         >
-                          Save
-                        </button>
+                          {account.isActive ? 'Active' : 'Inactive'}
+                        </span>
+                        {cookieStatus?.hasCookies && (
+                          <button
+                            onClick={() => handleValidateCookies(account.id)}
+                            disabled={validatingAccountId === account.id}
+                            className="px-2 py-1 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded text-xs"
+                          >
+                            {validatingAccountId === account.id ? 'Testing...' : 'Test'}
+                          </button>
+                        )}
                         <button
-                          onClick={() => {
-                            setEditingAccountId(null);
-                            setEditToken('');
-                          }}
-                          className="px-3 py-2 bg-gray-600 hover:bg-gray-500 text-white rounded text-sm"
+                          onClick={() => handleDeleteAccount(account.id)}
+                          className="text-red-400 hover:text-red-300 text-sm"
                         >
-                          Cancel
+                          Delete
                         </button>
                       </div>
                     </div>
-                  )}
-                </div>
-              ))
+                  </div>
+                );
+              })
             )}
           </div>
-        </div>
 
-        {/* LinkedAPI Configuration */}
-        {settings && (
-          <div className="bg-gray-800 rounded-lg p-6">
-            <h2 className="text-lg font-semibold text-white mb-4">LinkedAPI Configuration</h2>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-gray-300 mb-1">API Key (linked-api-token)</label>
-                <input
-                  type="password"
-                  value={settings.linkedApiKey || ''}
-                  onChange={(e) =>
-                    setSettings({ ...settings, linkedApiKey: e.target.value })
-                  }
-                  className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white"
-                  placeholder="Your main LinkedAPI key"
-                />
-                <p className="text-gray-500 text-xs mt-1">
-                  Get your API key from{' '}
-                  <a
-                    href="https://app.linkedapi.io"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-blue-400 hover:underline"
-                  >
-                    app.linkedapi.io
-                  </a>
-                  . This is shared across all LinkedIn accounts.
-                </p>
-              </div>
-            </div>
+          {/* Chrome Extension Instructions */}
+          <div className="mt-4 p-4 bg-gray-700/50 rounded border border-gray-600">
+            <h3 className="text-white font-medium mb-2">How to Sync LinkedIn Cookies</h3>
+            <ol className="text-gray-400 text-sm space-y-1 list-decimal list-inside">
+              <li>Install the LinkedIn Reply Bot Chrome extension</li>
+              <li>Log in to LinkedIn in your browser</li>
+              <li>Click the extension icon and authenticate with your dashboard password</li>
+              <li>Cookies will automatically sync when you&apos;re logged into LinkedIn</li>
+            </ol>
+            <p className="text-gray-500 text-xs mt-2">
+              The extension captures your LinkedIn session cookies to enable automated actions.
+              Cookies are re-synced automatically every 5 minutes while logged in.
+            </p>
           </div>
-        )}
+        </div>
 
         {/* AI DM Generation */}
         {settings && (
@@ -368,7 +363,6 @@ function AddAccountForm({
 }) {
   const [formData, setFormData] = useState({
     name: '',
-    identificationToken: '',
   });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
@@ -378,7 +372,8 @@ function AddAccountForm({
     setSubmitting(true);
     setError('');
     try {
-      await api.createAccount(formData);
+      // Create account without token - cookies will be synced via extension
+      await api.createAccount({ ...formData, identificationToken: '' });
       onSuccess();
     } catch (err) {
       console.error('Failed to create account', err);
@@ -405,27 +400,14 @@ function AddAccountForm({
             />
             <p className="text-gray-500 text-xs mt-1">A friendly name to identify this account</p>
           </div>
-          <div>
-            <label className="block text-gray-300 mb-1">Identification Token</label>
-            <input
-              type="password"
-              value={formData.identificationToken}
-              onChange={(e) => setFormData({ ...formData, identificationToken: e.target.value })}
-              className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white"
-              placeholder="Your LinkedAPI identification token"
-              required
-            />
-            <p className="text-gray-500 text-xs mt-1">
-              Get your identification token from{' '}
-              <a
-                href="https://app.linkedapi.io"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-blue-400 hover:underline"
-              >
-                linkedapi.io
-              </a>
-            </p>
+          <div className="bg-gray-700/50 rounded p-3">
+            <p className="text-gray-300 text-sm mb-2">Next Steps:</p>
+            <ol className="text-gray-400 text-xs space-y-1 list-decimal list-inside">
+              <li>Create this account</li>
+              <li>Install the Chrome extension</li>
+              <li>Log into LinkedIn in your browser</li>
+              <li>Click the extension to sync your session cookies</li>
+            </ol>
           </div>
           {error && (
             <p className="text-red-400 text-sm">{error}</p>

@@ -1,7 +1,7 @@
 import logging
 from datetime import datetime, date
 from app.db.client import prisma
-from app.services.linkedapi.client import LinkedAPIClient
+from app.services.linkedin.client import LinkedInDirectClient
 from app.services.reply_bot.processor import process_keyword_match
 from app.services.ai.client import analyze_comments_for_matches
 from app.utils.humanizer import random_delay
@@ -29,7 +29,7 @@ def exact_keyword_match(comment_text: str, keywords: list[str]) -> str | None:
 
 async def poll_single_post(post) -> dict:
     """Poll a single post for matching comments using AI-powered intent matching"""
-    client = await LinkedAPIClient.create(post.account.identificationToken)
+    client = await LinkedInDirectClient.create(post.accountId)
 
     # Get recent comments
     comments = await client.get_post_comments(post.postUrl, limit=50)

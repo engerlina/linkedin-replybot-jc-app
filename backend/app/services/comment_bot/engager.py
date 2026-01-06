@@ -1,5 +1,5 @@
 from app.db.client import prisma
-from app.services.linkedapi.client import LinkedAPIClient
+from app.services.linkedin.client import LinkedInDirectClient
 from app.services.ai.client import generate_insightful_comment
 from app.utils.rate_limiter import record_action
 
@@ -16,7 +16,7 @@ async def log_activity(account_id: str, action: str, status: str, details: dict 
     )
 
 
-async def engage_with_post(target, post: dict, client: LinkedAPIClient):
+async def engage_with_post(target, post: dict, client: LinkedInDirectClient):
     """Generate and post an insightful comment on a post"""
     # Generate comment
     comment_text = await generate_insightful_comment(

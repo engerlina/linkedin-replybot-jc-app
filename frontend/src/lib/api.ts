@@ -294,6 +294,24 @@ class ApiClient {
       body: JSON.stringify(data),
     });
   }
+
+  // Cookie Status
+  async getCookieStatus(accountId?: string) {
+    const query = accountId ? `?accountId=${accountId}` : '';
+    return this.request<CookieStatusResponse>(`/api/cookies/status${query}`);
+  }
+
+  async validateCookies(accountId: string) {
+    return this.request<CookieValidationResult>(
+      `/api/cookies/validate/${accountId}`,
+      { method: 'POST' },
+      60000  // 1 minute timeout
+    );
+  }
+
+  async deleteCookies(accountId: string) {
+    return this.request(`/api/cookies/${accountId}`, { method: 'DELETE' });
+  }
 }
 
 export const api = new ApiClient();
@@ -523,4 +541,26 @@ export interface PendingReply {
   sentAt: string | null;
   createdAt: string;
   post?: MonitoredPost;
+}
+
+export interface CookieStatus {
+  accountId: string;
+  accountName: string;
+  hasCookies: boolean;
+  isValid: boolean;
+  capturedAt: string | null;
+  lastUsedAt: string | null;
+  lastError: string | null;
+}
+
+export interface CookieStatusResponse {
+  accounts: CookieStatus[];
+}
+
+export interface CookieValidationResult {
+  success: boolean;
+  accountName?: string;
+  profileName?: string;
+  publicIdentifier?: string;
+  message?: string;
 }

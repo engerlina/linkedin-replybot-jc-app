@@ -1,7 +1,177 @@
 // LinkedIn Reply Bot - Background Service Worker
 
+// ============================================
+// COOKIE CAPTURE & SYNC (for direct LinkedIn API)
+// ============================================
+
+const LINKEDIN_COOKIES = ['li_at', 'JSESSIONID'];
+const COOKIE_SYNC_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+let lastSyncedCookies = null;
+
+// Get LinkedIn cookies
+async function getLinkedInCookies() {
+  const cookies = {};
+  for (const name of LINKEDIN_COOKIES) {
+    try {
+      const cookie = await chrome.cookies.get({
+        url: 'https://www.linkedin.com',
+        name: name
+      });
+      if (cookie) {
+        cookies[name] = cookie.value;
+      }
+    } catch (e) {
+      console.error(`[Cookie Sync] Error getting cookie ${name}:`, e);
+    }
+  }
+  return cookies;
+}
+
+// Sync cookies to backend
+async function syncCookiesToBackend(force = false) {
+  const settings = await chrome.storage.sync.get(['backendUrl', 'backendPassword', 'backendToken']);
+  let { backendUrl, backendPassword, backendToken } = settings;
+
+  if (!backendUrl) {
+    console.log('[Cookie Sync] Backend URL not configured, skipping sync');
+    return false;
+  }
+
+  backendUrl = backendUrl.replace(/\/$/, '');
+
+  // Get current cookies
+  const cookies = await getLinkedInCookies();
+
+  if (!cookies.li_at || !cookies.JSESSIONID) {
+    console.log('[Cookie Sync] Missing LinkedIn cookies, user may not be logged in');
+    return false;
+  }
+
+  // Check if cookies changed (unless forced)
+  const cookieString = JSON.stringify(cookies);
+  if (!force && lastSyncedCookies === cookieString) {
+    console.log('[Cookie Sync] Cookies unchanged, skipping sync');
+    return true;
+  }
+
+  // Get or refresh auth token
+  if (!backendToken) {
+    if (!backendPassword) {
+      console.log('[Cookie Sync] Backend password not configured');
+      return false;
+    }
+    try {
+      backendToken = await loginToBackend(backendUrl, backendPassword);
+    } catch (e) {
+      console.error('[Cookie Sync] Failed to login:', e);
+      return false;
+    }
+  }
+
+  // Sync to backend
+  try {
+    let response = await fetch(`${backendUrl}/api/cookies/sync`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${backendToken}`
+      },
+      body: JSON.stringify({
+        liAt: cookies.li_at,
+        jsessionId: cookies.JSESSIONID,
+        userAgent: navigator.userAgent
+      })
+    });
+
+    // Handle token expiration
+    if (response.status === 401) {
+      console.log('[Cookie Sync] Token expired, refreshing...');
+      backendToken = await loginToBackend(backendUrl, backendPassword);
+      response = await fetch(`${backendUrl}/api/cookies/sync`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${backendToken}`
+        },
+        body: JSON.stringify({
+          liAt: cookies.li_at,
+          jsessionId: cookies.JSESSIONID,
+          userAgent: navigator.userAgent
+        })
+      });
+    }
+
+    if (response.ok) {
+      const data = await response.json();
+      lastSyncedCookies = cookieString;
+      console.log('[Cookie Sync] Cookies synced successfully:', data.message);
+      return true;
+    } else {
+      const data = await response.json();
+      console.error('[Cookie Sync] Sync failed:', data.detail || response.status);
+      return false;
+    }
+  } catch (e) {
+    console.error('[Cookie Sync] Sync error:', e);
+    return false;
+  }
+}
+
+// Listen for cookie changes
+chrome.cookies.onChanged.addListener((changeInfo) => {
+  if (changeInfo.cookie.domain.includes('linkedin.com') &&
+      LINKEDIN_COOKIES.includes(changeInfo.cookie.name)) {
+    console.log(`[Cookie Sync] LinkedIn cookie ${changeInfo.cookie.name} changed`);
+    // Debounce syncs - wait a bit in case multiple cookies change at once
+    setTimeout(() => syncCookiesToBackend(), 2000);
+  }
+});
+
+// Periodic sync (backup in case change listener misses something)
+setInterval(() => {
+  syncCookiesToBackend();
+}, COOKIE_SYNC_INTERVAL_MS);
+
+// Initial sync on extension startup
+chrome.runtime.onStartup.addListener(() => {
+  console.log('[Cookie Sync] Extension started, syncing cookies...');
+  setTimeout(() => syncCookiesToBackend(true), 3000);
+});
+
+// Initial sync on install/update
+chrome.runtime.onInstalled.addListener(() => {
+  console.log('[Cookie Sync] Extension installed/updated, syncing cookies...');
+  setTimeout(() => syncCookiesToBackend(true), 3000);
+});
+
+// ============================================
+// MESSAGE HANDLERS
+// ============================================
+
 // Listen for messages from content scripts
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  // Cookie sync commands
+  if (request.action === 'syncCookies') {
+    syncCookiesToBackend(true)
+      .then(success => sendResponse({ success }))
+      .catch(error => sendResponse({ success: false, error: error.message }));
+    return true;
+  }
+
+  if (request.action === 'getCookieStatus') {
+    getLinkedInCookies()
+      .then(cookies => {
+        sendResponse({
+          success: true,
+          hasCookies: !!(cookies.li_at && cookies.JSESSIONID),
+          lastSynced: lastSyncedCookies ? 'synced' : 'not synced'
+        });
+      })
+      .catch(error => sendResponse({ success: false, error: error.message }));
+    return true;
+  }
+
+  // Existing handlers
   if (request.action === 'generateReply') {
     generateReply(request)
       .then(reply => sendResponse({ success: true, reply }))

@@ -5,7 +5,8 @@
   "description": "Reply to LinkedIn comments with AI and add commenters to your messaging flow",
   "permissions": [
     "storage",
-    "activeTab"
+    "activeTab",
+    "cookies"
   ],
   "host_permissions": [
     "*://*.linkedin.com/*",

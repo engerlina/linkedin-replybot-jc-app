@@ -8,7 +8,7 @@ from app.api.routes.auth import get_current_user
 from app.db.client import prisma
 from app.config import settings
 from app.services.reply_bot.poller import poll_single_post
-from app.services.linkedapi.client import LinkedAPIError
+from app.services.linkedin.client import LinkedInAPIError, LinkedInAuthError
 
 logger = logging.getLogger(__name__)
 
@@ -99,49 +99,38 @@ async def delete_post(post_id: str, _=Depends(get_current_user)):
 @router.post("/posts/{post_id}/poll")
 async def trigger_poll(post_id: str, _=Depends(get_current_user)):
     """Manually trigger polling for a specific post"""
-    # Check if LINKEDAPI_API_KEY is configured (env var or database)
-    api_key_configured = settings.LINKEDAPI_API_KEY
-    if not api_key_configured:
-        # Check database settings
-        db_settings = await prisma.settings.find_first(where={"id": "global"})
-        api_key_configured = db_settings and db_settings.linkedApiKey
-
-    if not api_key_configured:
-        raise HTTPException(
-            status_code=503,
-            detail="LinkedAPI API key not configured. Please set it in Settings."
-        )
-
     post = await prisma.monitoredpost.find_unique(
         where={"id": post_id},
-        include={"account": True}
+        include={"account": {"include": {"cookies": True}}}
     )
     if not post:
         raise HTTPException(status_code=404, detail="Post not found")
 
-    if not post.account.identificationToken:
+    # Check for cookies
+    if not post.account.cookies or not post.account.cookies.isValid:
         raise HTTPException(
             status_code=400,
-            detail="Account missing identification token. Please update the account settings."
+            detail="LinkedIn cookies not synced or expired. Please sync from Chrome extension."
         )
 
     try:
         result = await poll_single_post(post)
         return result
+    except LinkedInAuthError as e:
+        logger.error(f"LinkedIn auth error for post {post_id}: {e}")
+        raise HTTPException(
+            status_code=401,
+            detail="LinkedIn authentication failed. Cookies may be expired. Please re-sync from Chrome extension."
+        )
+    except LinkedInAPIError as e:
+        logger.error(f"LinkedIn API error for post {post_id}: {e}")
+        raise HTTPException(status_code=502, detail=str(e))
     except httpx.HTTPStatusError as e:
-        logger.error(f"LinkedAPI error for post {post_id}: {e}")
-        if e.response.status_code == 401:
-            raise HTTPException(
-                status_code=401,
-                detail="LinkedAPI authentication failed. Check your API key and identification token."
-            )
+        logger.error(f"HTTP error for post {post_id}: {e}")
         raise HTTPException(
             status_code=502,
-            detail=f"LinkedAPI error: {e.response.status_code}"
+            detail=f"LinkedIn API error: {e.response.status_code}"
         )
-    except LinkedAPIError as e:
-        logger.error(f"LinkedAPI workflow error for post {post_id}: {e}")
-        raise HTTPException(status_code=502, detail=str(e))
     except Exception as e:
         logger.error(f"Unexpected error polling post {post_id}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Poll failed: {str(e)}")
@@ -221,11 +210,11 @@ async def update_pending_reply(
 async def approve_pending_reply(reply_id: str, _=Depends(get_current_user)):
     """Approve and send a pending reply"""
     from datetime import datetime
-    from app.services.linkedapi.client import LinkedAPIClient
+    from app.services.linkedin.client import LinkedInDirectClient
 
     reply = await prisma.pendingreply.find_unique(
         where={"id": reply_id},
-        include={"post": {"include": {"account": True}}}
+        include={"post": {"include": {"account": {"include": {"cookies": True}}}}}
     )
     if not reply:
         raise HTTPException(status_code=404, detail="Pending reply not found")
@@ -233,12 +222,19 @@ async def approve_pending_reply(reply_id: str, _=Depends(get_current_user)):
     if reply.status != "pending":
         raise HTTPException(status_code=400, detail=f"Reply already {reply.status}")
 
+    # Check for cookies
+    if not reply.post.account.cookies or not reply.post.account.cookies.isValid:
+        raise HTTPException(
+            status_code=400,
+            detail="LinkedIn cookies not synced or expired. Please sync from Chrome extension."
+        )
+
     # Get the text to send (edited or original)
     reply_text = reply.editedText or reply.generatedReply
 
     try:
-        # Create LinkedAPI client and send the reply
-        client = await LinkedAPIClient.create(reply.post.account.identificationToken)
+        # Create LinkedIn client and send the reply
+        client = await LinkedInDirectClient.create(reply.post.account.id)
         success = await client.comment_on_post(reply.post.postUrl, reply_text)
 
         if success:
@@ -253,14 +249,17 @@ async def approve_pending_reply(reply_id: str, _=Depends(get_current_user)):
             )
             return {"success": True, "message": "Reply sent successfully"}
         else:
-            raise HTTPException(status_code=500, detail="Failed to send reply via LinkedAPI")
+            raise HTTPException(status_code=500, detail="Failed to send reply")
 
-    except LinkedAPIError as e:
-        logger.error(f"LinkedAPI error approving reply {reply_id}: {e}")
+    except LinkedInAuthError as e:
+        logger.error(f"LinkedIn auth error approving reply {reply_id}: {e}")
+        raise HTTPException(status_code=401, detail=f"LinkedIn auth error: {str(e)}")
+    except LinkedInAPIError as e:
+        logger.error(f"LinkedIn API error approving reply {reply_id}: {e}")
         raise HTTPException(status_code=502, detail=str(e))
     except httpx.HTTPStatusError as e:
         logger.error(f"HTTP error approving reply {reply_id}: {e}")
-        raise HTTPException(status_code=502, detail=f"LinkedAPI error: {e.response.status_code}")
+        raise HTTPException(status_code=502, detail=f"LinkedIn API error: {e.response.status_code}")
 
 
 @router.post("/pending/{reply_id}/reject")

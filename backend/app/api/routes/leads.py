@@ -70,20 +70,27 @@ async def delete_lead(lead_id: str, _=Depends(get_current_user)):
 async def check_lead_connection(lead_id: str, _=Depends(get_current_user)):
     """Manually check and update connection status for a single lead"""
     from datetime import datetime
-    from app.services.linkedapi.client import LinkedAPIClient, LinkedAPIError
+    from app.services.linkedin.client import LinkedInDirectClient, LinkedInAPIError, LinkedInAuthError
 
     lead = await prisma.lead.find_unique(
         where={"id": lead_id},
-        include={"account": True, "post": True}
+        include={"account": {"include": {"cookies": True}}, "post": True}
     )
     if not lead:
         raise HTTPException(status_code=404, detail="Lead not found")
 
-    if not lead.account or not lead.account.identificationToken:
-        raise HTTPException(status_code=400, detail="Account missing identification token")
+    if not lead.account:
+        raise HTTPException(status_code=400, detail="Account not found")
+
+    # Check for cookies
+    if not lead.account.cookies or not lead.account.cookies.isValid:
+        raise HTTPException(
+            status_code=400,
+            detail="LinkedIn cookies not synced or expired. Please sync from Chrome extension."
+        )
 
     try:
-        client = await LinkedAPIClient.create(lead.account.identificationToken)
+        client = await LinkedInDirectClient.create(lead.account.id)
         status = await client.check_connection(lead.linkedInUrl)
 
         # Update lead with new status
@@ -102,31 +109,40 @@ async def check_lead_connection(lead_id: str, _=Depends(get_current_user)):
             "connectionStatus": status,
             "lead": updated_lead
         }
+    except LinkedInAuthError as e:
+        raise HTTPException(status_code=401, detail=f"LinkedIn auth error: {str(e)}")
     except Exception as e:
-        raise HTTPException(status_code=502, detail=f"LinkedAPI error: {str(e)}")
+        raise HTTPException(status_code=502, detail=f"LinkedIn API error: {str(e)}")
 
 
 @router.post("/{lead_id}/send-connection")
 async def send_connection_request(lead_id: str, _=Depends(get_current_user)):
     """Manually send a connection request to a lead"""
     from datetime import datetime
-    from app.services.linkedapi.client import LinkedAPIClient
+    from app.services.linkedin.client import LinkedInDirectClient, LinkedInAuthError
 
     lead = await prisma.lead.find_unique(
         where={"id": lead_id},
-        include={"account": True, "post": True}
+        include={"account": {"include": {"cookies": True}}, "post": True}
     )
     if not lead:
         raise HTTPException(status_code=404, detail="Lead not found")
 
-    if not lead.account or not lead.account.identificationToken:
-        raise HTTPException(status_code=400, detail="Account missing identification token")
+    if not lead.account:
+        raise HTTPException(status_code=400, detail="Account not found")
+
+    # Check for cookies
+    if not lead.account.cookies or not lead.account.cookies.isValid:
+        raise HTTPException(
+            status_code=400,
+            detail="LinkedIn cookies not synced or expired. Please sync from Chrome extension."
+        )
 
     if lead.connectionStatus == "connected":
         raise HTTPException(status_code=400, detail="Already connected to this lead")
 
     try:
-        client = await LinkedAPIClient.create(lead.account.identificationToken)
+        client = await LinkedInDirectClient.create(lead.account.id)
 
         # Generate connection note
         note = f"Hi {lead.name.split()[0]}! Saw your comment and would love to connect."
@@ -149,26 +165,35 @@ async def send_connection_request(lead_id: str, _=Depends(get_current_user)):
             }
         else:
             raise HTTPException(status_code=500, detail="Failed to send connection request")
+    except LinkedInAuthError as e:
+        raise HTTPException(status_code=401, detail=f"LinkedIn auth error: {str(e)}")
     except Exception as e:
-        raise HTTPException(status_code=502, detail=f"LinkedAPI error: {str(e)}")
+        raise HTTPException(status_code=502, detail=f"LinkedIn API error: {str(e)}")
 
 
 @router.post("/{lead_id}/send-dm")
 async def send_dm_to_lead_manual(lead_id: str, _=Depends(get_current_user)):
     """Manually send DM to a connected lead - uses AI to generate personalized message"""
     from datetime import datetime
-    from app.services.linkedapi.client import LinkedAPIClient
+    from app.services.linkedin.client import LinkedInDirectClient, LinkedInAuthError
     from app.services.ai.client import generate_dm_from_settings
 
     lead = await prisma.lead.find_unique(
         where={"id": lead_id},
-        include={"account": True, "post": True}
+        include={"account": {"include": {"cookies": True}}, "post": True}
     )
     if not lead:
         raise HTTPException(status_code=404, detail="Lead not found")
 
-    if not lead.account or not lead.account.identificationToken:
-        raise HTTPException(status_code=400, detail="Account missing identification token")
+    if not lead.account:
+        raise HTTPException(status_code=400, detail="Account not found")
+
+    # Check for cookies
+    if not lead.account.cookies or not lead.account.cookies.isValid:
+        raise HTTPException(
+            status_code=400,
+            detail="LinkedIn cookies not synced or expired. Please sync from Chrome extension."
+        )
 
     if lead.connectionStatus != "connected":
         raise HTTPException(status_code=400, detail=f"Cannot DM - lead is {lead.connectionStatus}, not connected")
@@ -222,7 +247,7 @@ async def send_dm_to_lead_manual(lead_id: str, _=Depends(get_current_user)):
         logger.info(f"Sending DM to {lead.name} at {lead.linkedInUrl}")
         logger.info(f"Message: {message[:100]}...")
 
-        client = await LinkedAPIClient.create(lead.account.identificationToken)
+        client = await LinkedInDirectClient.create(lead.account.id)
         success = await client.send_message(lead.linkedInUrl, message)
 
         if success:

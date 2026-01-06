@@ -1,6 +1,6 @@
 from datetime import datetime
 from app.db.client import prisma
-from app.services.linkedapi.client import LinkedAPIClient
+from app.services.linkedin.client import LinkedInDirectClient, LinkedInAuthError
 from app.services.reply_bot.poller import poll_single_post
 from app.services.reply_bot.messenger import send_dm_to_lead
 from app.services.comment_bot.watcher import check_and_engage
@@ -75,17 +75,18 @@ async def run_connection_checker():
     # First: Process leads with "unknown" status (new leads from extension)
     unknown_leads = await prisma.lead.find_many(
         where={"connectionStatus": "unknown"},
-        include={"account": True, "post": True},
+        include={"account": {"include": {"cookies": True}}, "post": True},
         take=10
     )
 
     for lead in unknown_leads:
         try:
-            if not lead.account.identificationToken:
-                logger.warning(f"Lead {lead.id} has no identification token, skipping")
+            # Check if account has valid cookies
+            if not lead.account.cookies or not lead.account.cookies.isValid:
+                logger.warning(f"Lead {lead.id} account has no valid cookies, skipping")
                 continue
 
-            client = await LinkedAPIClient.create(lead.account.identificationToken)
+            client = await LinkedInDirectClient.create(lead.account.id)
             status = await client.check_connection(lead.linkedInUrl)
             logger.info(f"Lead {lead.name}: connection status = {status}")
 
@@ -150,16 +151,16 @@ async def run_connection_checker():
             "connectionStatus": "pending",
             "dmStatus": "not_sent"
         },
-        include={"account": True, "post": True},
+        include={"account": {"include": {"cookies": True}}, "post": True},
         take=10
     )
 
     for lead in pending_leads:
         try:
-            if not lead.account.identificationToken:
+            if not lead.account.cookies or not lead.account.cookies.isValid:
                 continue
 
-            client = await LinkedAPIClient.create(lead.account.identificationToken)
+            client = await LinkedInDirectClient.create(lead.account.id)
             status = await client.check_connection(lead.linkedInUrl)
 
             if status == "connected":
@@ -188,7 +189,7 @@ async def run_pending_dm_sender():
         where={"status": "pending"},
         include={
             "lead": {
-                "include": {"account": True, "post": True}
+                "include": {"account": {"include": {"cookies": True}}, "post": True}
             }
         },
         take=10
@@ -209,11 +210,11 @@ async def run_pending_dm_sender():
             continue
 
         try:
-            if not lead.account.identificationToken:
-                logger.warning(f"Lead {lead.id} account has no identification token")
+            if not lead.account.cookies or not lead.account.cookies.isValid:
+                logger.warning(f"Lead {lead.id} account has no valid cookies")
                 continue
 
-            client = await LinkedAPIClient.create(lead.account.identificationToken)
+            client = await LinkedInDirectClient.create(lead.account.id)
 
             # Use edited text if available, otherwise original message
             message = dm.editedText or dm.message
@@ -262,7 +263,7 @@ async def run_pending_dm_sender():
             "connectionStatus": "connected",
             "dmStatus": "not_sent"
         },
-        include={"account": True, "post": True},
+        include={"account": {"include": {"cookies": True}}, "post": True},
         take=10
     )
 
@@ -276,7 +277,10 @@ async def run_pending_dm_sender():
 
         if lead.post and lead.post.ctaMessage and await can_perform(lead.accountId, "message"):
             try:
-                client = await LinkedAPIClient.create(lead.account.identificationToken)
+                if not lead.account.cookies or not lead.account.cookies.isValid:
+                    logger.warning(f"Lead {lead.id} account has no valid cookies")
+                    continue
+                client = await LinkedInDirectClient.create(lead.account.id)
                 await send_dm_to_lead(lead, lead.post, client)
                 await random_delay(120, 300)
             except Exception as e:

@@ -1,6 +1,6 @@
 from datetime import datetime
 from app.db.client import prisma
-from app.services.linkedapi.client import LinkedAPIClient
+from app.services.linkedin.client import LinkedInDirectClient
 from app.services.ai.client import generate_sales_dm
 from app.utils.rate_limiter import record_action
 from app.utils.humanizer import random_delay
@@ -18,7 +18,7 @@ async def log_activity(account_id: str, action: str, status: str, details: dict 
     )
 
 
-async def send_dm_to_lead(lead, post, client: LinkedAPIClient):
+async def send_dm_to_lead(lead, post, client: LinkedInDirectClient):
     """Send a sales DM to a connected lead using custom instructions if available"""
     dm_text = await generate_sales_dm(
         lead_name=lead.name,
@@ -49,7 +49,7 @@ async def send_dm_to_lead(lead, post, client: LinkedAPIClient):
         await log_activity(post.accountId, "dm_sent", "success", {"leadId": lead.id})
 
 
-async def send_connection_to_lead(lead, post, client: LinkedAPIClient):
+async def send_connection_to_lead(lead, post, client: LinkedInDirectClient):
     """Send a connection request to a lead"""
     first_name = lead.name.split()[0]
     note = f"Hi {first_name}, saw your comment on my post about {post.postTitle or 'a topic I shared'}. Would love to connect!"

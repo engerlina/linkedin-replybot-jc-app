@@ -1,6 +1,6 @@
 from datetime import datetime
 from app.db.client import prisma
-from app.services.linkedapi.client import LinkedAPIClient
+from app.services.linkedin.client import LinkedInDirectClient
 from app.services.comment_bot.engager import engage_with_post
 from app.utils.rate_limiter import can_perform
 from app.utils.humanizer import random_delay
@@ -8,7 +8,7 @@ from app.utils.humanizer import random_delay
 
 async def check_and_engage(target):
     """Check a watched account for new posts and engage"""
-    client = await LinkedAPIClient.create(target.account.identificationToken)
+    client = await LinkedInDirectClient.create(target.accountId)
 
     since = target.lastCheckedAt.isoformat() if target.lastCheckedAt else None
     posts = await client.get_person_posts(target.targetUrl, limit=5, since=since)

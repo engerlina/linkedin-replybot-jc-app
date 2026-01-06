@@ -41,7 +41,7 @@ model LinkedInAccount {
   id                  String   @id @default(cuid())
   name                String
   profileUrl          String?  // Optional - can be fetched from LinkedAPI
-  identificationToken String   @unique // LinkedAPI identification token (unique per LinkedIn account)
+  identificationToken String?  @unique // LinkedAPI identification token (deprecated - use cookies)
   isActive            Boolean  @default(true)
 
   // Voice/Style Settings
@@ -57,6 +57,31 @@ model LinkedInAccount {
   watchedAccounts WatchedAccount[]
   leads           Lead[]
   activityLogs    ActivityLog[]
+  cookies         LinkedInCookie?  // Browser cookies for direct LinkedIn API access
+}
+
+// LinkedIn browser cookies for direct API access (replaces LinkedAPI)
+model LinkedInCookie {
+  id        String          @id @default(cuid())
+  accountId String          @unique
+  account   LinkedInAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  // Core cookies from browser
+  liAt       String  // li_at session cookie - main auth
+  jsessionId String  // JSESSIONID for CSRF protection
+  csrfToken  String  // Extracted from JSESSIONID (quotes stripped)
+
+  // Metadata
+  userAgent String? // Browser user agent for requests
+
+  // Validity tracking
+  capturedAt DateTime  @default(now())
+  lastUsedAt DateTime?
+  isValid    Boolean   @default(true)
+  lastError  String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 // ============================================

@@ -8,7 +8,7 @@ from apscheduler.triggers.interval import IntervalTrigger
 
 from app.config import settings
 from app.db.client import prisma
-from app.api.routes import auth, accounts, reply_bot, comment_bot, leads, logs, stats
+from app.api.routes import auth, accounts, reply_bot, comment_bot, leads, logs, stats, cookies
 from app.services.scheduler.jobs import (
     run_reply_bot_poll,
     run_comment_bot_check,
@@ -158,6 +158,7 @@ app.include_router(comment_bot.router, prefix="/api/comment-bot", tags=["comment
 app.include_router(leads.router, prefix="/api/leads", tags=["leads"])
 app.include_router(logs.router, prefix="/api/logs", tags=["logs"])
 app.include_router(stats.router, prefix="/api/stats", tags=["stats"])
+app.include_router(cookies.router, prefix="/api/cookies", tags=["cookies"])
 
 
 # Global exception handler to ensure CORS headers on errors
