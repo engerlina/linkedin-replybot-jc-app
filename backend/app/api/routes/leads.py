@@ -83,3 +83,43 @@ async def get_lead_stats(accountId: Optional[str] = None, _=Depends(get_current_
         "pending": pending,
         "dmSent": dm_sent
     }
+
+
+@router.post("/process")
+async def process_leads(_=Depends(get_current_user)):
+    """
+    Manually trigger lead processing:
+    - Check connection status of unknown leads
+    - Send connection requests to not-connected leads
+    - Check pending connections
+    """
+    import logging
+    from app.services.scheduler.jobs import run_connection_checker, run_pending_dm_sender
+
+    logger = logging.getLogger(__name__)
+    logger.info("Manual lead processing triggered")
+
+    results = {
+        "connectionChecker": "started",
+        "dmSender": "started"
+    }
+
+    try:
+        await run_connection_checker()
+        results["connectionChecker"] = "completed"
+    except Exception as e:
+        logger.error(f"Connection checker error: {e}")
+        results["connectionChecker"] = f"error: {str(e)}"
+
+    try:
+        await run_pending_dm_sender()
+        results["dmSender"] = "completed"
+    except Exception as e:
+        logger.error(f"DM sender error: {e}")
+        results["dmSender"] = f"error: {str(e)}"
+
+    return {
+        "success": True,
+        "message": "Lead processing completed",
+        "results": results
+    }
