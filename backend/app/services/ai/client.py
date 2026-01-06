@@ -1,7 +1,18 @@
 from anthropic import AsyncAnthropic
 from app.config import settings
 
-client = AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
+# Lazy initialization - only create client when needed
+_client = None
+
+
+def get_client() -> AsyncAnthropic:
+    """Get the Anthropic client, creating it lazily"""
+    global _client
+    if _client is None:
+        if not settings.ANTHROPIC_API_KEY:
+            raise ValueError("ANTHROPIC_API_KEY environment variable is not set")
+        _client = AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
+    return _client
 
 
 async def generate_reply_comment(
@@ -45,7 +56,7 @@ Write a friendly, engaging reply that:
 Do NOT be salesy or pushy. Be genuine and helpful.
 Write only the reply text, nothing else."""
 
-    response = await client.messages.create(
+    response = await get_client().messages.create(
         model="claude-sonnet-4-20250514",
         max_tokens=200,
         messages=[{"role": "user", "content": prompt}]
@@ -102,7 +113,7 @@ CTA: {cta_value}
 
 Write only the message text, nothing else."""
 
-    response = await client.messages.create(
+    response = await get_client().messages.create(
         model="claude-sonnet-4-20250514",
         max_tokens=300,
         messages=[{"role": "user", "content": prompt}]
@@ -144,7 +155,7 @@ NEVER use generic phrases like "Great post!" or "Thanks for sharing!"
 
 Write only the comment text, nothing else."""
 
-    response = await client.messages.create(
+    response = await get_client().messages.create(
         model="claude-sonnet-4-20250514",
         max_tokens=250,
         messages=[{"role": "user", "content": prompt}]
