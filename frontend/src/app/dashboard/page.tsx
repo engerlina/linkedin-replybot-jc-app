@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { api, DashboardStats, ActivityLog } from '@/lib/api';
 import { useAuth } from '@/hooks/useAuth';
 import { formatRelativeTime, formatAction } from '@/lib/utils';
@@ -67,6 +68,34 @@ export default function DashboardPage() {
               <span className="font-medium">{stats?.totalLeads || 0}</span>
             </div>
           </div>
+
+          {/* Pending Items */}
+          {(stats?.pendingReplies || stats?.pendingComments) ? (
+            <div className="mt-6 pt-4 border-t border-gray-700">
+              <h3 className="text-sm font-medium text-yellow-400 mb-3">Awaiting Review</h3>
+              <div className="space-y-2">
+                {stats?.pendingReplies > 0 && (
+                  <Link
+                    href="/dashboard/review-queue"
+                    className="flex justify-between items-center text-gray-300 hover:text-white p-2 rounded hover:bg-gray-700"
+                  >
+                    <span>Pending Replies</span>
+                    <span className="bg-yellow-600 px-2 py-1 rounded text-sm font-medium">
+                      {stats.pendingReplies}
+                    </span>
+                  </Link>
+                )}
+                {stats?.pendingComments > 0 && (
+                  <div className="flex justify-between items-center text-gray-300 p-2">
+                    <span>Pending Comments</span>
+                    <span className="bg-yellow-600 px-2 py-1 rounded text-sm font-medium">
+                      {stats.pendingComments}
+                    </span>
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : null}
         </div>
 
         {/* Recent Activity */}

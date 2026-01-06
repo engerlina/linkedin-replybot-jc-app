@@ -261,6 +261,8 @@ export interface DashboardStats {
   dmsSentToday: number;
   activeMonitoredPosts: number;
   activeWatchedAccounts: number;
+  pendingReplies: number;
+  pendingComments: number;
 }
 
 export interface LinkedInAccount {

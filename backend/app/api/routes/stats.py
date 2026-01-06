@@ -59,6 +59,16 @@ async def get_dashboard_stats(_=Depends(get_current_user)):
         where={"isActive": True}
     )
 
+    # Pending replies awaiting review
+    pending_replies = await prisma.pendingreply.count(
+        where={"status": "pending"}
+    )
+
+    # Pending comments awaiting review
+    pending_comments = await prisma.pendingcomment.count(
+        where={"status": "pending"}
+    )
+
     return {
         "totalLeads": total_leads,
         "leadsToday": leads_today,
@@ -66,7 +76,9 @@ async def get_dashboard_stats(_=Depends(get_current_user)):
         "connectionsToday": connections_today,
         "dmsSentToday": dms_today,
         "activeMonitoredPosts": active_monitored_posts,
-        "activeWatchedAccounts": active_watched_accounts
+        "activeWatchedAccounts": active_watched_accounts,
+        "pendingReplies": pending_replies,
+        "pendingComments": pending_comments
     }
 
 
