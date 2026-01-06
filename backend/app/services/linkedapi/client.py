@@ -1,7 +1,6 @@
 import asyncio
 import httpx
 from typing import Optional
-from app.config import settings
 
 
 class LinkedAPIError(Exception):
@@ -11,10 +10,11 @@ class LinkedAPIError(Exception):
 class LinkedAPIClient:
     BASE_URL = "https://api.linkedapi.io"
 
-    def __init__(self, account_token: str):
-        self.account_token = account_token
+    def __init__(self, api_key: str):
+        """Initialize with the account's LinkedAPI API key"""
+        self.api_key = api_key
         self.headers = {
-            "Authorization": f"Bearer {settings.LINKEDAPI_API_KEY}",
+            "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json"
         }
 
@@ -26,7 +26,6 @@ class LinkedAPIClient:
                 f"{self.BASE_URL}/workflows",
                 headers=self.headers,
                 json={
-                    "accountToken": self.account_token,
                     "workflow": workflow
                 }
             )
