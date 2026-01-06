@@ -151,6 +151,38 @@ class ApiClient {
     return this.request<ProcessedComment[]>(`/api/reply-bot/posts/${postId}/comments${query}`);
   }
 
+  // Pending Replies (Review Queue)
+  async getPendingReplies(status: string = 'pending', postId?: string) {
+    const params = new URLSearchParams();
+    if (status) params.set('status', status);
+    if (postId) params.set('postId', postId);
+    const query = params.toString() ? `?${params}` : '';
+    return this.request<PendingReply[]>(`/api/reply-bot/pending${query}`);
+  }
+
+  async updatePendingReply(id: string, data: { editedText?: string }) {
+    return this.request<PendingReply>(`/api/reply-bot/pending/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async approvePendingReply(id: string) {
+    return this.request<{ success: boolean; message: string }>(`/api/reply-bot/pending/${id}/approve`, {
+      method: 'POST',
+    });
+  }
+
+  async rejectPendingReply(id: string) {
+    return this.request<{ success: boolean; message: string }>(`/api/reply-bot/pending/${id}/reject`, {
+      method: 'POST',
+    });
+  }
+
+  async deletePendingReply(id: string) {
+    return this.request(`/api/reply-bot/pending/${id}`, { method: 'DELETE' });
+  }
+
   // Comment Bot
   async getWatchedAccounts(accountId?: string) {
     const query = accountId ? `?accountId=${accountId}` : '';
@@ -264,6 +296,7 @@ export interface MonitoredPost {
   ctaMessage: string | null;
   replyStyle: string | null;
   isActive: boolean;
+  autoReply: boolean;
   totalComments: number;
   totalMatches: number;
   totalLeads: number;
@@ -292,6 +325,7 @@ export interface UpdatePostRequest {
   ctaMessage?: string;
   replyStyle?: string;
   isActive?: boolean;
+  autoReply?: boolean;
 }
 
 export interface ProcessedComment {
@@ -414,4 +448,21 @@ export interface Settings {
   replyBotEnabled: boolean;
   commentBotEnabled: boolean;
   updatedAt: string;
+}
+
+export interface PendingReply {
+  id: string;
+  postId: string;
+  commenterUrl: string;
+  commenterName: string;
+  commenterHeadline: string | null;
+  commentText: string;
+  matchedKeyword: string | null;
+  generatedReply: string;
+  status: string;  // pending, approved, rejected, sent
+  editedText: string | null;
+  reviewedAt: string | null;
+  sentAt: string | null;
+  createdAt: string;
+  post?: MonitoredPost;
 }

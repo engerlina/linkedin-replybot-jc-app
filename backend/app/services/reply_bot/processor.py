@@ -27,7 +27,7 @@ async def process_keyword_match(post, comment, client: LinkedAPIClient):
     if not await can_perform(account_id, "comment"):
         return
 
-    # 1. Generate and post reply using custom instructions if available
+    # 1. Generate reply using custom instructions if available
     reply_text = await generate_reply_comment(
         original_comment=comment.commentText,
         commenter_name=comment.commenterName,
@@ -37,17 +37,38 @@ async def process_keyword_match(post, comment, client: LinkedAPIClient):
         custom_instructions=post.replyStyle
     )
 
-    await random_delay(60, 180)  # Human-like delay
+    # 2. Check if auto-reply is enabled or queue for review
+    if post.autoReply:
+        # Auto-reply enabled: send immediately
+        await random_delay(60, 180)  # Human-like delay
 
-    success = await client.comment_on_post(post.postUrl, reply_text)
+        success = await client.comment_on_post(post.postUrl, reply_text)
 
-    if success:
-        await record_action(account_id, "comment")
-        await prisma.processedcomment.update(
-            where={"id": comment.id},
-            data={"repliedAt": datetime.utcnow(), "replyText": reply_text}
+        if success:
+            await record_action(account_id, "comment")
+            await prisma.processedcomment.update(
+                where={"id": comment.id},
+                data={"repliedAt": datetime.utcnow(), "replyText": reply_text}
+            )
+            await log_activity(account_id, "reply_posted", "success", {
+                "postId": post.id,
+                "commenterUrl": comment.commenterUrl
+            })
+    else:
+        # Auto-reply disabled: queue for review
+        await prisma.pendingreply.create(
+            data={
+                "postId": post.id,
+                "commenterUrl": comment.commenterUrl,
+                "commenterName": comment.commenterName,
+                "commenterHeadline": comment.commenterHeadline,
+                "commentText": comment.commentText,
+                "matchedKeyword": comment.matchedKeyword,
+                "generatedReply": reply_text,
+                "status": "pending"
+            }
         )
-        await log_activity(account_id, "reply_posted", "success", {
+        await log_activity(account_id, "reply_queued", "success", {
             "postId": post.id,
             "commenterUrl": comment.commenterUrl
         })

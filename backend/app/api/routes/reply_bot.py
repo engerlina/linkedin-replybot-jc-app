@@ -34,6 +34,11 @@ class UpdatePostRequest(BaseModel):
     ctaMessage: Optional[str] = None
     replyStyle: Optional[str] = None
     isActive: Optional[bool] = None
+    autoReply: Optional[bool] = None
+
+
+class UpdatePendingReplyRequest(BaseModel):
+    editedText: Optional[str] = None
 
 
 @router.get("/posts")
@@ -152,3 +157,130 @@ async def get_post_comments(
         take=100
     )
     return comments
+
+
+# ============================================
+# REVIEW QUEUE ENDPOINTS
+# ============================================
+
+@router.get("/pending")
+async def list_pending_replies(
+    status: Optional[str] = "pending",
+    postId: Optional[str] = None,
+    _=Depends(get_current_user)
+):
+    """List pending replies for review"""
+    where = {}
+    if status:
+        where["status"] = status
+    if postId:
+        where["postId"] = postId
+
+    pending = await prisma.pendingreply.find_many(
+        where=where,
+        include={"post": {"include": {"account": True}}},
+        order={"createdAt": "desc"},
+        take=100
+    )
+    return pending
+
+
+@router.get("/pending/{reply_id}")
+async def get_pending_reply(reply_id: str, _=Depends(get_current_user)):
+    """Get a single pending reply"""
+    reply = await prisma.pendingreply.find_unique(
+        where={"id": reply_id},
+        include={"post": {"include": {"account": True}}}
+    )
+    if not reply:
+        raise HTTPException(status_code=404, detail="Pending reply not found")
+    return reply
+
+
+@router.patch("/pending/{reply_id}")
+async def update_pending_reply(
+    reply_id: str,
+    req: UpdatePendingReplyRequest,
+    _=Depends(get_current_user)
+):
+    """Update a pending reply (edit the text)"""
+    reply = await prisma.pendingreply.update(
+        where={"id": reply_id},
+        data={"editedText": req.editedText}
+    )
+    return reply
+
+
+@router.post("/pending/{reply_id}/approve")
+async def approve_pending_reply(reply_id: str, _=Depends(get_current_user)):
+    """Approve and send a pending reply"""
+    from datetime import datetime
+    from app.services.linkedapi.client import LinkedAPIClient
+
+    reply = await prisma.pendingreply.find_unique(
+        where={"id": reply_id},
+        include={"post": {"include": {"account": True}}}
+    )
+    if not reply:
+        raise HTTPException(status_code=404, detail="Pending reply not found")
+
+    if reply.status != "pending":
+        raise HTTPException(status_code=400, detail=f"Reply already {reply.status}")
+
+    # Get the text to send (edited or original)
+    reply_text = reply.editedText or reply.generatedReply
+
+    try:
+        # Create LinkedAPI client and send the reply
+        client = await LinkedAPIClient.create(reply.post.account.identificationToken)
+        success = await client.comment_on_post(reply.post.postUrl, reply_text)
+
+        if success:
+            # Update pending reply status
+            await prisma.pendingreply.update(
+                where={"id": reply_id},
+                data={
+                    "status": "sent",
+                    "reviewedAt": datetime.utcnow(),
+                    "sentAt": datetime.utcnow()
+                }
+            )
+            return {"success": True, "message": "Reply sent successfully"}
+        else:
+            raise HTTPException(status_code=500, detail="Failed to send reply via LinkedAPI")
+
+    except LinkedAPIError as e:
+        logger.error(f"LinkedAPI error approving reply {reply_id}: {e}")
+        raise HTTPException(status_code=502, detail=str(e))
+    except httpx.HTTPStatusError as e:
+        logger.error(f"HTTP error approving reply {reply_id}: {e}")
+        raise HTTPException(status_code=502, detail=f"LinkedAPI error: {e.response.status_code}")
+
+
+@router.post("/pending/{reply_id}/reject")
+async def reject_pending_reply(reply_id: str, _=Depends(get_current_user)):
+    """Reject a pending reply"""
+    from datetime import datetime
+
+    reply = await prisma.pendingreply.find_unique(where={"id": reply_id})
+    if not reply:
+        raise HTTPException(status_code=404, detail="Pending reply not found")
+
+    if reply.status != "pending":
+        raise HTTPException(status_code=400, detail=f"Reply already {reply.status}")
+
+    await prisma.pendingreply.update(
+        where={"id": reply_id},
+        data={
+            "status": "rejected",
+            "reviewedAt": datetime.utcnow()
+        }
+    )
+    return {"success": True, "message": "Reply rejected"}
+
+
+@router.delete("/pending/{reply_id}")
+async def delete_pending_reply(reply_id: str, _=Depends(get_current_user)):
+    """Delete a pending reply"""
+    await prisma.pendingreply.delete(where={"id": reply_id})
+    return {"success": True}
