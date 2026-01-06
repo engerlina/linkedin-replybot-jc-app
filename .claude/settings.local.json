@@ -13,7 +13,8 @@
       "Bash(curl:*)",
       "Bash(git push:*)",
       "Bash(timeout 30 railway logs:*)",
-      "Bash(timeout 60 railway logs:*)"
+      "Bash(timeout 60 railway logs:*)",
+      "Bash(cat:*)"
     ]
   }
 }
