@@ -18,8 +18,12 @@ RUN prisma generate
 # Copy application code
 COPY app ./app
 
+# Copy and make startup script executable
+COPY start.sh ./start.sh
+RUN chmod +x start.sh
+
 # Expose port
 EXPOSE 8000
 
-# Run the application
-CMD ["sh", "-c", "prisma migrate deploy && uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
+# Run the application with startup script for better error handling
+CMD ["./start.sh"]
