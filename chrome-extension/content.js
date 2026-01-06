@@ -12,6 +12,11 @@
   // Canned responses (loaded from settings) - now objects with {text, autoConnect, addToFlow}
   let cannedResponses = [];
 
+  // Cache for existing leads (to show "In Flow" before clicking)
+  let existingLeadsCache = {};
+  let lastBatchCheckTime = 0;
+  const BATCH_CHECK_INTERVAL = 30000; // Re-check every 30 seconds
+
   // Load canned responses
   async function loadCannedResponses() {
     const settings = await chrome.storage.sync.get(['cannedResponses']);
@@ -78,12 +83,14 @@
   }
 
   // Scan for comments and inject buttons
-  function scanForComments() {
+  async function scanForComments() {
     const comments = document.querySelectorAll('.comments-comment-entity, .comments-thread-entity');
+    const newComments = [];
+    const commenterUrls = [];
 
+    // First pass: collect new comments and their URLs
     comments.forEach(comment => {
       if (comment.dataset.replyBotProcessed) return;
-      comment.dataset.replyBotProcessed = 'true';
 
       // Find the social bar (Like/Reply buttons)
       let socialBar = comment.querySelector('.comments-comment-social-bar__action-group');
@@ -98,13 +105,45 @@
       }
 
       if (socialBar && !socialBar.querySelector('.reply-bot-btn-container')) {
-        injectButton(comment, socialBar);
+        const url = extractCommenterUrl(comment);
+        if (url) {
+          commenterUrls.push(url);
+        }
+        newComments.push({ comment, socialBar, url });
       }
+    });
+
+    // Batch check leads if we have new comments and enough time has passed
+    if (commenterUrls.length > 0) {
+      const now = Date.now();
+      if (now - lastBatchCheckTime > BATCH_CHECK_INTERVAL) {
+        lastBatchCheckTime = now;
+        try {
+          const response = await chrome.runtime.sendMessage({
+            action: 'batchCheckLeads',
+            commenterUrls
+          });
+          if (response.success && response.leads) {
+            // Merge new results into cache
+            Object.assign(existingLeadsCache, response.leads);
+            console.log('[LinkedIn Reply Bot] Updated leads cache:', Object.keys(existingLeadsCache).length, 'leads');
+          }
+        } catch (e) {
+          console.warn('[LinkedIn Reply Bot] Batch check failed:', e);
+        }
+      }
+    }
+
+    // Second pass: inject buttons with lead status
+    newComments.forEach(({ comment, socialBar, url }) => {
+      comment.dataset.replyBotProcessed = 'true';
+      const isExistingLead = url && existingLeadsCache[url];
+      injectButton(comment, socialBar, isExistingLead);
     });
   }
 
   // Inject the AI Reply button
-  function injectButton(comment, socialBar) {
+  function injectButton(comment, socialBar, existingLead = null) {
     const container = document.createElement('div');
     container.className = 'reply-bot-btn-container';
 
@@ -128,15 +167,28 @@
     dropdown.className = 'reply-bot-dropdown';
     dropdown.style.display = 'none';
 
-    // Add to Flow button (always visible)
+    // Add to Flow button (shows status if already a lead)
     const flowBtn = document.createElement('button');
     flowBtn.className = 'reply-bot-flow-btn-inline';
-    flowBtn.innerHTML = `
-      <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
-        <path d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 14H4V8l8 5 8-5v10zm-8-7L4 6h16l-8 5z"/>
-      </svg>
-      <span>+ Flow</span>
-    `;
+
+    if (existingLead) {
+      // Already in flow - show persistent status
+      flowBtn.innerHTML = `
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
+          <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/>
+        </svg>
+        <span>In Flow ✓</span>
+      `;
+      flowBtn.classList.add('exists');
+      flowBtn.title = `${existingLead.name || 'Lead'} - ${existingLead.connectionStatus || 'unknown'}`;
+    } else {
+      flowBtn.innerHTML = `
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
+          <path d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 14H4V8l8 5 8-5v10zm-8-7L4 6h16l-8 5z"/>
+        </svg>
+        <span>+ Flow</span>
+      `;
+    }
 
     container.appendChild(button);
     container.appendChild(dropdownBtn);
@@ -171,10 +223,14 @@
       }
     });
 
-    // Flow button click - add to DM flow directly
+    // Flow button click - add to DM flow directly (skip if already exists)
     flowBtn.addEventListener('click', async (e) => {
       e.preventDefault();
       e.stopPropagation();
+      // If already in flow, don't do anything
+      if (flowBtn.classList.contains('exists')) {
+        return;
+      }
       await handleAddToFlowDirect(comment, flowBtn);
     });
 
@@ -191,7 +247,6 @@
     if (flowBtn.classList.contains('loading')) return;
 
     flowBtn.classList.add('loading');
-    const originalText = flowBtn.querySelector('span').textContent;
     flowBtn.querySelector('span').textContent = 'Checking...';
 
     try {
@@ -220,31 +275,49 @@
         throw new Error(response.error);
       }
 
+      flowBtn.classList.remove('loading');
+
       if (response.alreadyExists) {
-        flowBtn.querySelector('span').textContent = 'Already in flow!';
+        // Update cache and show persistent state
+        existingLeadsCache[commenterUrl] = response.lead;
+        flowBtn.innerHTML = `
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
+            <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/>
+          </svg>
+          <span>In Flow ✓</span>
+        `;
         flowBtn.classList.add('exists');
-      } else if (response.dmSent) {
-        flowBtn.querySelector('span').textContent = 'Added + DM sent!';
-        flowBtn.classList.add('success');
-      } else if (response.connectionStatus === 'connected') {
-        flowBtn.querySelector('span').textContent = 'Added (connected)';
-        flowBtn.classList.add('success');
-      } else if (response.connectionStatus === 'notConnected') {
-        flowBtn.querySelector('span').textContent = 'Added (not connected)';
-        flowBtn.classList.add('exists');
+        flowBtn.title = `${response.lead?.name || commenterName} - already in flow`;
       } else {
-        flowBtn.querySelector('span').textContent = 'Added!';
-        flowBtn.classList.add('success');
+        // Successfully added - update cache and show persistent state
+        existingLeadsCache[commenterUrl] = {
+          id: response.leadId,
+          name: commenterName,
+          connectionStatus: response.connectionStatus || 'unknown'
+        };
+        flowBtn.innerHTML = `
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
+            <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/>
+          </svg>
+          <span>In Flow ✓</span>
+        `;
+        flowBtn.classList.add('exists');
+        flowBtn.title = `${commenterName} - added to flow`;
       }
 
     } catch (error) {
       console.error('[LinkedIn Reply Bot] Add to flow error:', error);
+      flowBtn.classList.remove('loading');
       flowBtn.querySelector('span').textContent = 'Error!';
       alert('Error: ' + error.message);
-    } finally {
+      // Reset error state after 3 seconds
       setTimeout(() => {
-        flowBtn.classList.remove('loading', 'success', 'exists');
-        flowBtn.querySelector('span').textContent = originalText;
+        flowBtn.innerHTML = `
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
+            <path d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 14H4V8l8 5 8-5v10zm-8-7L4 6h16l-8 5z"/>
+          </svg>
+          <span>+ Flow</span>
+        `;
       }, 3000);
     }
   }
@@ -1195,7 +1268,9 @@
         copyBtn.className = 'dm-sidebar-action-btn dm-sidebar-copy-btn';
         copyBtn.textContent = 'Copy & Insert';
         copyBtn.addEventListener('click', async () => {
-          const personalizedMessage = textarea.value.replace(/\{name\}/g, recipientName || '');
+          // Get the current recipient name at click time (not render time)
+          const currentRecipientName = getMessagingRecipientName();
+          const personalizedMessage = textarea.value.replace(/\{name\}/g, currentRecipientName || '');
           try {
             await navigator.clipboard.writeText(personalizedMessage);
             insertIntoMessageInput(personalizedMessage);
@@ -1260,27 +1335,87 @@
 
   // Get recipient name from messaging page
   function getMessagingRecipientName() {
-    // Try various selectors for the conversation header (expanded list)
+    // Check if compose modal is open - if so, prioritize compose selectors
+    const isComposeOpen = document.querySelector('.artdeco-pill__text') ||
+                          document.querySelector('.msg-form__pill-listitem') ||
+                          document.querySelector('.msg-compose-form') ||
+                          document.querySelector('.msg-connections-typeahead');
+
+    // COMPOSE MODAL SELECTORS - highest priority when composing new message
+    const composeSelectors = [
+      // Artdeco pill (the blue pill showing selected recipient) - PRIMARY
+      '.artdeco-pill__text',
+      'span.artdeco-pill__text',
+      // Compose pill/chip variations
+      '.msg-form__pill-listitem .msg-entity-lockup__entity-title',
+      '.msg-form__pill-listitem span[dir="ltr"]',
+      '.msg-compose-form .msg-entity-lockup__entity-title',
+      '.msg-form__pill button span',
+      '.msg-connections-typeahead__search-result-title',
+      '.msg-compose-pill__text',
+      '.msg-compose__convo-pill span',
+      // Recipient input area pill
+      '.msg-form__to-input .msg-entity-lockup__entity-title',
+      '.msg-form__recipients-area .msg-entity-lockup__entity-title',
+      // New compose modal (2024+)
+      '.msg-form__pill-container .artdeco-entity-lockup__title',
+      '.msg-form__pill-container span.visually-hidden + span',
+      '[data-artdeco-is-focused] .artdeco-entity-lockup__title'
+    ];
+
+    // If compose is open, only check compose selectors first
+    if (isComposeOpen) {
+      for (const selector of composeSelectors) {
+        const el = document.querySelector(selector);
+        if (el && el.textContent.trim()) {
+          const fullName = el.textContent.trim();
+          if (fullName.toLowerCase() === 'messaging' ||
+              fullName.toLowerCase().includes('new message') ||
+              fullName.toLowerCase() === 'compose' ||
+              fullName.toLowerCase() === 'to:') {
+            continue;
+          }
+          const firstName = fullName.split(' ')[0];
+          if (firstName && firstName.length > 1) {
+            console.log('[LinkedIn Reply Bot] Found name in compose modal:', firstName);
+            return firstName;
+          }
+        }
+      }
+    }
+
+    // CONVERSATION THREAD SELECTORS - for existing conversations
     const selectors = [
-      // Full messaging page
+      // Full messaging page - main conversation header
       '.msg-thread .msg-entity-lockup__entity-title',
       '.msg-thread h2.msg-entity-lockup__entity-title',
       '.msg-s-message-list-container .msg-entity-lockup__entity-title',
       '.msg-conversations-container__title-row .truncate',
-      // Compose/overlay
+      // Conversation title in thread view (when opened from URL)
+      '.msg-s-event-listitem__link .msg-s-message-group__name',
+      '.msg-thread__link-to-profile span',
+      '.msg-thread__link-to-profile',
+      // Header area selectors
+      '.msg-title-bar .truncate',
+      '.msg-title-bar__title-text',
+      '.msg-title-bar a[href*="/in/"]',
+      // Compose/overlay bubble (different from compose modal)
       '.msg-overlay-conversation-bubble__title',
       '.msg-overlay-bubble-header__title',
       'h2.msg-overlay-bubble-header__title',
-      '.msg-compose-form .msg-entity-lockup__entity-title',
-      // Other variations
-      '.msg-conversation-card__title',
-      '.msg-thread__link-to-profile',
-      '.msg-title-bar .truncate',
-      '.msg-thread__link-to-profile span',
-      '.msg-connections-typeahead__search-result-title',
-      // New compose modal
-      '.msg-compose-pill__text',
-      '.msg-compose__convo-pill span'
+      // Selected conversation in list (fallback)
+      '.msg-conversation-listitem--active .msg-conversation-card__title',
+      '.msg-conversation-listitem--active .msg-conversation-card__participant-names',
+      // New LinkedIn messaging UI (2024+)
+      '[data-test-messaging-conversation-thread-header-title]',
+      '.msg-s-message-list-content .msg-s-message-group__profile-link',
+      // Thread header when viewing a conversation
+      '.msg-overlay-list-bubble__header-heading',
+      // Profile link in conversation header
+      'a.msg-thread__link-to-profile',
+      // Generic fallbacks for name in header area
+      '.msg-s-message-list-container h2',
+      '.msg-thread h2'
     ];
 
     for (const selector of selectors) {
@@ -1288,8 +1423,26 @@
       if (el && el.textContent.trim()) {
         // Extract first name
         const fullName = el.textContent.trim();
+        // Skip if it's generic text like "Messaging" or "New message"
+        if (fullName.toLowerCase() === 'messaging' ||
+            fullName.toLowerCase().includes('new message') ||
+            fullName.toLowerCase() === 'compose') {
+          continue;
+        }
         const firstName = fullName.split(' ')[0];
         if (firstName && firstName.length > 1) {
+          return firstName;
+        }
+      }
+    }
+
+    // Last resort: try to find name from profile links in the thread header
+    const profileLinks = document.querySelectorAll('.msg-thread a[href*="/in/"], .msg-title-bar a[href*="/in/"]');
+    for (const link of profileLinks) {
+      const name = link.textContent.trim();
+      if (name && name.length > 1 && !name.includes('/')) {
+        const firstName = name.split(' ')[0];
+        if (firstName.length > 1) {
           return firstName;
         }
       }
@@ -1351,6 +1504,10 @@
         }
         // Always show and refresh on messaging pages
         toggleDmSidebar(true);
+
+        // When coming from external link (like leads page), LinkedIn may still be loading
+        // Do aggressive retries to detect recipient name
+        detectRecipientWithRetries();
       });
     } else {
       // Hide sidebar when not on messaging
@@ -1358,6 +1515,93 @@
         existingSidebar.style.display = 'none';
       }
     }
+  }
+
+  // Detect recipient name with multiple retries (for fresh page loads)
+  let recipientDetectionObserver = null;
+
+  async function detectRecipientWithRetries(maxAttempts = 10, baseDelay = 300) {
+    // Clean up previous observer if any
+    if (recipientDetectionObserver) {
+      recipientDetectionObserver.disconnect();
+      recipientDetectionObserver = null;
+    }
+
+    let attempts = 0;
+    let detected = false;
+
+    const tryDetect = () => {
+      if (detected) return true;
+
+      attempts++;
+      const name = getMessagingRecipientName();
+
+      if (name) {
+        detected = true;
+        console.log(`[LinkedIn Reply Bot] Recipient detected on attempt ${attempts}: ${name}`);
+        refreshRecipientName();
+        if (recipientDetectionObserver) {
+          recipientDetectionObserver.disconnect();
+          recipientDetectionObserver = null;
+        }
+        return true;
+      }
+
+      if (attempts < maxAttempts) {
+        // Progressive delay: 300, 500, 700, 900, etc.
+        const delay = baseDelay + (attempts * 200);
+        console.log(`[LinkedIn Reply Bot] Recipient not found, retrying in ${delay}ms (attempt ${attempts}/${maxAttempts})`);
+        setTimeout(tryDetect, delay);
+        return false;
+      }
+
+      console.log('[LinkedIn Reply Bot] Max attempts reached, recipient not detected');
+      return false;
+    };
+
+    // Also set up a MutationObserver to catch when the name element appears
+    recipientDetectionObserver = new MutationObserver((mutations) => {
+      if (detected) {
+        recipientDetectionObserver.disconnect();
+        return;
+      }
+
+      // Check if any name-related element was added
+      for (const mutation of mutations) {
+        if (mutation.addedNodes.length > 0) {
+          const name = getMessagingRecipientName();
+          if (name) {
+            detected = true;
+            console.log('[LinkedIn Reply Bot] Recipient detected via MutationObserver:', name);
+            refreshRecipientName();
+            recipientDetectionObserver.disconnect();
+            recipientDetectionObserver = null;
+            return;
+          }
+        }
+      }
+    });
+
+    // Observe the main content area for changes
+    const observeTarget = document.querySelector('.scaffold-layout__main') ||
+                          document.querySelector('.application-outlet') ||
+                          document.body;
+
+    recipientDetectionObserver.observe(observeTarget, {
+      childList: true,
+      subtree: true
+    });
+
+    // Start polling detection after a short initial delay
+    setTimeout(tryDetect, 200);
+
+    // Auto-cleanup observer after 15 seconds
+    setTimeout(() => {
+      if (recipientDetectionObserver) {
+        recipientDetectionObserver.disconnect();
+        recipientDetectionObserver = null;
+      }
+    }, 15000);
   }
 
   // Periodically refresh recipient name as fallback (in case observer misses changes)

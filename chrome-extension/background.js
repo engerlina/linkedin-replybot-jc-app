@@ -206,6 +206,13 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     });
     return true;
   }
+
+  if (request.action === 'batchCheckLeads') {
+    batchCheckLeads(request.commenterUrls)
+      .then(result => sendResponse({ success: true, leads: result }))
+      .catch(error => sendResponse({ success: false, error: error.message }));
+    return true;
+  }
 });
 
 // Generate AI reply
@@ -676,5 +683,78 @@ async function addToFlowWithCheck(request) {
   } else {
     const data = await response.json();
     throw new Error(data.detail || 'Failed to add to flow');
+  }
+}
+
+// Batch check if multiple commenter URLs are already leads
+async function batchCheckLeads(commenterUrls) {
+  const settings = await chrome.storage.sync.get(['backendUrl', 'backendPassword', 'backendToken']);
+  let { backendUrl, backendPassword, backendToken } = settings;
+
+  if (!backendUrl) {
+    console.log('[LinkedIn Reply Bot] Backend URL not configured for batch check');
+    return {};
+  }
+
+  backendUrl = backendUrl.replace(/\/$/, '');
+
+  // Get or refresh token
+  if (!backendToken) {
+    if (!backendPassword) {
+      console.log('[LinkedIn Reply Bot] Backend password not configured');
+      return {};
+    }
+    try {
+      backendToken = await loginToBackend(backendUrl, backendPassword);
+    } catch (e) {
+      console.error('[LinkedIn Reply Bot] Failed to login for batch check:', e);
+      return {};
+    }
+  }
+
+  // Helper to make authenticated requests with retry
+  async function makeRequest(url, options) {
+    let response = await fetch(url, {
+      ...options,
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${backendToken}`,
+        ...options.headers
+      }
+    });
+
+    if (response.status === 401) {
+      backendToken = await loginToBackend(backendUrl, backendPassword);
+      response = await fetch(url, {
+        ...options,
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${backendToken}`,
+          ...options.headers
+        }
+      });
+    }
+
+    return response;
+  }
+
+  try {
+    const response = await makeRequest(`${backendUrl}/api/reply-bot/batch-check-leads`, {
+      method: 'POST',
+      body: JSON.stringify({ commenterUrls })
+    });
+
+    if (response.ok) {
+      const data = await response.json();
+      console.log('[LinkedIn Reply Bot] Batch check result:', Object.keys(data.leads).length, 'existing leads found');
+      return data.leads;
+    } else {
+      const data = await response.json();
+      console.error('[LinkedIn Reply Bot] Batch check failed:', data.detail || response.status);
+      return {};
+    }
+  } catch (e) {
+    console.error('[LinkedIn Reply Bot] Batch check error:', e);
+    return {};
   }
 }

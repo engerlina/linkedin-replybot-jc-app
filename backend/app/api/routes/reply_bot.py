@@ -538,3 +538,75 @@ async def check_if_lead_exists(commenterUrl: str, _=Depends(get_current_user)):
         }
     else:
         return {"exists": False}
+
+
+class BatchCheckLeadsRequest(BaseModel):
+    commenterUrls: List[str]
+
+
+@router.post("/batch-check-leads")
+async def batch_check_leads(req: BatchCheckLeadsRequest, _=Depends(get_current_user)):
+    """
+    Check if multiple leads already exist by their LinkedIn URLs.
+    Returns a dict mapping URL to lead info (or null if not found).
+    Used by Chrome extension to pre-check which commenters are already leads.
+    """
+    if not req.commenterUrls:
+        return {"leads": {}}
+
+    # Normalize URLs
+    urls = [url.strip().rstrip('/') for url in req.commenterUrls if url and url.strip()]
+
+    if not urls:
+        return {"leads": {}}
+
+    # Find all leads matching any of the URLs
+    leads = await prisma.lead.find_many(
+        where={"linkedInUrl": {"in": urls}}
+    )
+
+    # Build response dict
+    result = {}
+    for lead in leads:
+        result[lead.linkedInUrl] = {
+            "id": lead.id,
+            "name": lead.name,
+            "connectionStatus": lead.connectionStatus,
+            "dmStatus": lead.dmStatus,
+            "postUrl": lead.postUrl
+        }
+
+    return {"leads": result}
+
+
+class BulkTagLeadsRequest(BaseModel):
+    postUrl: str
+    leadIds: Optional[List[str]] = None  # If None, tag all leads without a postUrl
+
+
+@router.post("/bulk-tag-leads")
+async def bulk_tag_leads(req: BulkTagLeadsRequest, _=Depends(get_current_user)):
+    """
+    Bulk update leads with a post URL (tag them to a specific post).
+    If leadIds is provided, only those leads are updated.
+    If leadIds is None, all leads without a postUrl are updated.
+    """
+    if not req.postUrl or not req.postUrl.strip():
+        raise HTTPException(status_code=400, detail="Post URL is required")
+
+    post_url = req.postUrl.strip()
+
+    if req.leadIds:
+        # Update specific leads
+        result = await prisma.lead.update_many(
+            where={"id": {"in": req.leadIds}},
+            data={"postUrl": post_url}
+        )
+        return {"success": True, "updated": result, "message": f"Tagged {result} leads with post URL"}
+    else:
+        # Update all leads without a postUrl
+        result = await prisma.lead.update_many(
+            where={"postUrl": None},
+            data={"postUrl": post_url}
+        )
+        return {"success": True, "updated": result, "message": f"Tagged {result} leads (those without existing post URL)"}
