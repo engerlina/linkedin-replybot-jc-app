@@ -70,7 +70,7 @@ export default function SettingsPage() {
       loadData();
     } catch (err) {
       console.error('Failed to update account', err);
-      alert('Failed to update account');
+      alert(err instanceof Error ? err.message : 'Failed to update account');
     }
   };
 
