@@ -278,6 +278,22 @@ class ApiClient {
     });
   }
 
+  async previewLeadDM(id: string) {
+    return this.request<DMPreviewResponse>(`/api/leads/${id}/preview-dm`, {
+      method: 'POST',
+    });
+  }
+
+  async queueLeadDM(id: string, message?: string) {
+    return this.request<{ success: boolean; pendingDm: PendingDM; message: string }>(
+      `/api/leads/${id}/queue-dm`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ message }),
+      }
+    );
+  }
+
   // Logs
   async getLogs(limit = 50) {
     return this.request<ActivityLog[]>(`/api/logs?limit=${limit}`);
@@ -563,4 +579,24 @@ export interface CookieValidationResult {
   profileName?: string;
   publicIdentifier?: string;
   message?: string;
+}
+
+export interface PendingDM {
+  id: string;
+  leadId: string;
+  message: string;
+  editedText: string | null;
+  status: string;  // pending, approved, sent, failed
+  reviewedAt: string | null;
+  sentAt: string | null;
+  createdAt: string;
+}
+
+export interface DMPreviewResponse {
+  message: string;
+  source: 'pending_dm' | 'ai_generated' | 'template';
+  canEdit: boolean;
+  pendingDmId?: string;
+  leadName?: string;
+  leadHeadline?: string;
 }

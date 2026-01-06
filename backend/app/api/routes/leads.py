@@ -305,6 +305,139 @@ async def send_dm_to_lead_manual(lead_id: str, _=Depends(get_current_user)):
         raise HTTPException(status_code=502, detail=f"Error: {str(e)}")
 
 
+@router.post("/{lead_id}/preview-dm")
+async def preview_dm(lead_id: str, _=Depends(get_current_user)):
+    """Preview the AI-generated DM without sending it"""
+    from app.services.ai.client import generate_dm_from_settings
+
+    lead = await prisma.lead.find_unique(
+        where={"id": lead_id},
+        include={"account": True, "post": True}
+    )
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+
+    # Check for existing pending DM
+    pending_dm = await prisma.pendingdm.find_first(
+        where={"leadId": lead_id, "status": "pending"}
+    )
+
+    if pending_dm:
+        return {
+            "message": pending_dm.editedText or pending_dm.message,
+            "source": "pending_dm",
+            "canEdit": True,
+            "pendingDmId": pending_dm.id
+        }
+
+    # Generate new message using AI
+    settings = await prisma.settings.find_first(where={"id": "global"})
+
+    message = None
+    source = "none"
+
+    if settings and (settings.dmAiPrompt or settings.dmUserContext):
+        try:
+            message = await generate_dm_from_settings(
+                lead_name=lead.name,
+                lead_headline=lead.headline,
+                source_keyword=lead.sourceKeyword,
+                source_post_title=lead.post.postTitle if lead.post else None,
+                user_context=settings.dmUserContext,
+                ai_prompt=settings.dmAiPrompt
+            )
+            source = "ai_generated"
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning(f"AI DM generation failed: {e}")
+            if settings.defaultDmTemplate:
+                first_name = lead.name.split()[0] if lead.name else "there"
+                message = settings.defaultDmTemplate.replace("{name}", first_name)
+                source = "template"
+
+    elif settings and settings.defaultDmTemplate:
+        first_name = lead.name.split()[0] if lead.name else "there"
+        message = settings.defaultDmTemplate.replace("{name}", first_name)
+        source = "template"
+
+    if not message:
+        raise HTTPException(
+            status_code=400,
+            detail="No DM configuration found. Please set up AI DM settings in Settings > AI DM Generation."
+        )
+
+    return {
+        "message": message,
+        "source": source,
+        "canEdit": True,
+        "leadName": lead.name,
+        "leadHeadline": lead.headline
+    }
+
+
+class QueueDMRequest(BaseModel):
+    message: Optional[str] = None
+
+
+@router.post("/{lead_id}/queue-dm")
+async def queue_dm(lead_id: str, req: QueueDMRequest = None, _=Depends(get_current_user)):
+    """Create or update a pending DM for review before sending"""
+    from app.services.ai.client import generate_dm_from_settings
+
+    lead = await prisma.lead.find_unique(
+        where={"id": lead_id},
+        include={"account": True, "post": True}
+    )
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+
+    message = req.message if req else None
+
+    # If no message provided, generate one
+    if not message:
+        settings = await prisma.settings.find_first(where={"id": "global"})
+        if settings and (settings.dmAiPrompt or settings.dmUserContext):
+            try:
+                message = await generate_dm_from_settings(
+                    lead_name=lead.name,
+                    lead_headline=lead.headline,
+                    source_keyword=lead.sourceKeyword,
+                    source_post_title=lead.post.postTitle if lead.post else None,
+                    user_context=settings.dmUserContext,
+                    ai_prompt=settings.dmAiPrompt
+                )
+            except Exception:
+                pass
+
+    if not message:
+        raise HTTPException(status_code=400, detail="No message provided or generated")
+
+    # Create or update pending DM
+    existing = await prisma.pendingdm.find_first(
+        where={"leadId": lead_id, "status": "pending"}
+    )
+
+    if existing:
+        pending_dm = await prisma.pendingdm.update(
+            where={"id": existing.id},
+            data={"message": message}
+        )
+    else:
+        pending_dm = await prisma.pendingdm.create(
+            data={
+                "leadId": lead_id,
+                "message": message,
+                "status": "pending"
+            }
+        )
+
+    return {
+        "success": True,
+        "pendingDm": pending_dm,
+        "message": "DM queued for review"
+    }
+
+
 @router.post("/{lead_id}/mark-sent")
 async def mark_dm_as_sent(lead_id: str, _=Depends(get_current_user)):
     """Manually mark DM as sent (for when you sent it manually on LinkedIn)"""

@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { api, Lead } from '@/lib/api';
+import { api, Lead, DMPreviewResponse } from '@/lib/api';
 import { useAuth } from '@/hooks/useAuth';
 import { formatRelativeTime } from '@/lib/utils';
 
@@ -16,6 +16,25 @@ export default function LeadsPage() {
     dmStatus: '',
   });
   const [activeQueue, setActiveQueue] = useState<'all' | 'connection' | 'dm'>('all');
+
+  // DM Preview Modal state
+  const [dmPreviewModal, setDmPreviewModal] = useState<{
+    show: boolean;
+    leadId: string;
+    leadName: string;
+    preview: DMPreviewResponse | null;
+    editedMessage: string;
+    loading: boolean;
+    sending: boolean;
+  }>({
+    show: false,
+    leadId: '',
+    leadName: '',
+    preview: null,
+    editedMessage: '',
+    loading: false,
+    sending: false,
+  });
 
   useEffect(() => {
     loadData();
@@ -78,20 +97,56 @@ export default function LeadsPage() {
     }
   };
 
-  const handleSendDM = async (leadId: string) => {
-    setActionLoading((prev) => ({ ...prev, [leadId]: 'dm' }));
+  const handlePreviewDM = async (lead: Lead) => {
+    setDmPreviewModal({
+      show: true,
+      leadId: lead.id,
+      leadName: lead.name,
+      preview: null,
+      editedMessage: '',
+      loading: true,
+      sending: false,
+    });
+
     try {
+      const preview = await api.previewLeadDM(lead.id);
+      setDmPreviewModal((prev) => ({
+        ...prev,
+        preview,
+        editedMessage: preview.message,
+        loading: false,
+      }));
+    } catch (err) {
+      alert('Failed to generate DM preview: ' + (err as Error).message);
+      setDmPreviewModal((prev) => ({ ...prev, show: false, loading: false }));
+    }
+  };
+
+  const handleSendDMFromModal = async () => {
+    const { leadId, editedMessage } = dmPreviewModal;
+    setDmPreviewModal((prev) => ({ ...prev, sending: true }));
+
+    try {
+      // First queue the DM with the edited message (if edited)
+      if (dmPreviewModal.preview && editedMessage !== dmPreviewModal.preview.message) {
+        await api.queueLeadDM(leadId, editedMessage);
+      }
+      // Then send it
       const result = await api.sendLeadDM(leadId);
       alert(result.message);
+      setDmPreviewModal((prev) => ({ ...prev, show: false, sending: false }));
       loadData();
     } catch (err) {
       alert('Failed to send DM: ' + (err as Error).message);
-    } finally {
-      setActionLoading((prev) => {
-        const next = { ...prev };
-        delete next[leadId];
-        return next;
-      });
+      setDmPreviewModal((prev) => ({ ...prev, sending: false }));
+    }
+  };
+
+  const handleSendDM = async (leadId: string) => {
+    // Find the lead and open preview modal
+    const lead = leads.find((l) => l.id === leadId);
+    if (lead) {
+      handlePreviewDM(lead);
     }
   };
 
@@ -327,6 +382,93 @@ export default function LeadsPage() {
           </tbody>
         </table>
       </div>
+
+      {/* DM Preview Modal */}
+      {dmPreviewModal.show && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-gray-800 rounded-lg p-6 w-full max-w-lg mx-4">
+            <h2 className="text-xl font-bold text-white mb-4">
+              Send DM to {dmPreviewModal.leadName}
+            </h2>
+
+            {dmPreviewModal.loading ? (
+              <div className="flex items-center justify-center py-8">
+                <LoadingSpinner />
+                <span className="ml-2 text-gray-400">Generating personalized message...</span>
+              </div>
+            ) : (
+              <>
+                {dmPreviewModal.preview && (
+                  <div className="mb-4">
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className="text-gray-400 text-sm">Source:</span>
+                      <span className={`px-2 py-0.5 rounded text-xs ${
+                        dmPreviewModal.preview.source === 'ai_generated'
+                          ? 'bg-purple-600 text-white'
+                          : dmPreviewModal.preview.source === 'template'
+                          ? 'bg-blue-600 text-white'
+                          : 'bg-gray-600 text-white'
+                      }`}>
+                        {dmPreviewModal.preview.source === 'ai_generated'
+                          ? 'AI Generated'
+                          : dmPreviewModal.preview.source === 'template'
+                          ? 'Template'
+                          : 'Pending'}
+                      </span>
+                    </div>
+                  </div>
+                )}
+
+                <div className="mb-4">
+                  <label className="block text-gray-300 mb-2">Message (edit if needed):</label>
+                  <textarea
+                    value={dmPreviewModal.editedMessage}
+                    onChange={(e) =>
+                      setDmPreviewModal((prev) => ({
+                        ...prev,
+                        editedMessage: e.target.value,
+                      }))
+                    }
+                    className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white h-40 resize-none"
+                    placeholder="Enter your message..."
+                  />
+                </div>
+
+                <div className="flex gap-3 justify-end">
+                  <button
+                    onClick={() =>
+                      setDmPreviewModal((prev) => ({ ...prev, show: false }))
+                    }
+                    className="px-4 py-2 bg-gray-600 text-white rounded hover:bg-gray-500"
+                    disabled={dmPreviewModal.sending}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleSendDMFromModal}
+                    disabled={
+                      dmPreviewModal.sending || !dmPreviewModal.editedMessage.trim()
+                    }
+                    className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-500 disabled:opacity-50 flex items-center gap-2"
+                  >
+                    {dmPreviewModal.sending ? (
+                      <>
+                        <LoadingSpinner />
+                        Sending...
+                      </>
+                    ) : (
+                      <>
+                        <MessageIcon />
+                        Send DM
+                      </>
+                    )}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
