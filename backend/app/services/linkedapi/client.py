@@ -135,12 +135,22 @@ class LinkedAPIClient:
         return result.get("success", False)
 
     async def send_message(self, person_url: str, text: str) -> bool:
+        import logging
+        logger = logging.getLogger(__name__)
+
         result = await self.execute({
             "actionType": "st.sendMessage",
             "personUrl": person_url,
             "text": text
         })
-        return result.get("success", False)
+        logger.info(f"LinkedAPI send_message result: {result}")
+
+        # Check various success indicators
+        success = result.get("success", False)
+        if not success:
+            # Some workflows return data instead of success flag
+            success = bool(result.get("data")) or bool(result.get("messageId"))
+        return success
 
     async def get_person_posts(self, person_url: str, limit: int = 5, since: Optional[str] = None) -> list:
         result = await self.execute({

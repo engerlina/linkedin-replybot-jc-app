@@ -217,6 +217,11 @@ async def send_dm_to_lead_manual(lead_id: str, _=Depends(get_current_user)):
         )
 
     try:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(f"Sending DM to {lead.name} at {lead.linkedInUrl}")
+        logger.info(f"Message: {message[:100]}...")
+
         client = await LinkedAPIClient.create(lead.account.identificationToken)
         success = await client.send_message(lead.linkedInUrl, message)
 
@@ -237,16 +242,20 @@ async def send_dm_to_lead_manual(lead_id: str, _=Depends(get_current_user)):
                 },
                 include={"account": True, "post": True}
             )
+            logger.info(f"DM sent successfully to {lead.name}")
             return {
                 "success": True,
                 "message": "DM sent successfully",
                 "lead": updated_lead
             }
         else:
-            raise HTTPException(status_code=500, detail="Failed to send DM")
+            logger.error(f"LinkedAPI returned failure for DM to {lead.name}")
+            raise HTTPException(status_code=500, detail="Failed to send DM - LinkedAPI returned failure. Check if you're connected to the lead.")
     except HTTPException:
         raise
     except Exception as e:
+        import logging
+        logging.getLogger(__name__).error(f"DM send error: {e}")
         raise HTTPException(status_code=502, detail=f"Error: {str(e)}")
 
 
