@@ -122,6 +122,85 @@ Write only the message text, nothing else."""
     return response.content[0].text.strip()
 
 
+async def analyze_comments_for_matches(
+    comments: list[dict],
+    keywords: list[str],
+    post_context: str = None
+) -> list[dict]:
+    """
+    Use AI to analyze comments and determine which ones show genuine interest.
+    Returns comments with match info - much better than exact keyword matching.
+
+    Each comment dict should have: commenterUrl, commenterName, text
+    Returns list of dicts with: commenterUrl, matchedKeyword, confidence
+    """
+    if not comments:
+        return []
+
+    # Format comments for analysis
+    comments_text = "\n".join([
+        f'{i+1}. "{c.get("text", "")}" - by {c.get("commenterName", "Unknown")}'
+        for i, c in enumerate(comments)
+    ])
+
+    prompt = f"""Analyze these LinkedIn comments to identify people showing genuine interest in participating or engaging.
+
+KEYWORDS TO LOOK FOR (case-insensitive, intent-based matching):
+{', '.join(keywords)}
+
+IMPORTANT: Match based on INTENT, not just exact words. For example:
+- "build" keyword should match: "BUILD", "Let's build!", "I want to build this", "Count me in!", "I'm interested", "Sign me up", "Yes please", etc.
+- Any expression of interest, enthusiasm, or desire to participate should be considered a match
+
+COMMENTS TO ANALYZE:
+{comments_text}
+
+{f"POST CONTEXT: {post_context}" if post_context else ""}
+
+For each comment that shows genuine interest (matches the intent of any keyword), respond with this format:
+MATCH: [comment_number] | KEYWORD: [matched_keyword] | CONFIDENCE: [high/medium]
+
+Only include matches - skip comments that don't show interest.
+If no comments match, respond with: NO_MATCHES"""
+
+    try:
+        response = await get_client().messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=500,
+            messages=[{"role": "user", "content": prompt}]
+        )
+
+        result_text = response.content[0].text.strip()
+
+        if "NO_MATCHES" in result_text:
+            return []
+
+        matches = []
+        for line in result_text.split("\n"):
+            if line.startswith("MATCH:"):
+                try:
+                    parts = line.split("|")
+                    comment_num = int(parts[0].replace("MATCH:", "").strip()) - 1
+                    keyword = parts[1].replace("KEYWORD:", "").strip()
+                    confidence = parts[2].replace("CONFIDENCE:", "").strip().lower()
+
+                    if 0 <= comment_num < len(comments):
+                        matches.append({
+                            "comment": comments[comment_num],
+                            "matchedKeyword": keyword,
+                            "confidence": confidence
+                        })
+                except (ValueError, IndexError):
+                    continue
+
+        return matches
+    except Exception as e:
+        # Fall back to exact matching if AI fails
+        import logging
+        logging.getLogger(__name__).warning(f"AI matching failed, using exact match: {e}")
+        return []
+
+
 async def generate_insightful_comment(
     post_content: str,
     author_name: str,

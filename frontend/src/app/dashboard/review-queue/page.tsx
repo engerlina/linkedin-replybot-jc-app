@@ -122,7 +122,14 @@ export default function ReviewQueuePage() {
               {/* Header */}
               <div className="flex justify-between items-start mb-4">
                 <div>
-                  <p className="text-white font-medium">{reply.commenterName}</p>
+                  <a
+                    href={reply.commenterUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-white font-medium hover:text-blue-400 hover:underline"
+                  >
+                    {reply.commenterName}
+                  </a>
                   <p className="text-gray-400 text-sm">{reply.commenterHeadline}</p>
                   <p className="text-gray-500 text-xs mt-1">
                     {formatRelativeTime(reply.createdAt)}
