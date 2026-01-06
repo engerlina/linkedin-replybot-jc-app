@@ -29,9 +29,13 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('addCanned').addEventListener('click', addCannedResponse);
   document.getElementById('saveCanned').addEventListener('click', saveCannedResponses);
 
-  // Canned DM Messages
-  document.getElementById('addCannedDm').addEventListener('click', addCannedDmMessage);
-  document.getElementById('saveCannedDms').addEventListener('click', saveCannedDmMessages);
+  // DM Templates - 1st, 2nd, 3rd
+  document.getElementById('addDm1').addEventListener('click', () => addDmTemplate('dm1List'));
+  document.getElementById('saveDm1').addEventListener('click', () => saveDmTemplates('dm1', 'dm1List', 'dm1Status'));
+  document.getElementById('addDm2').addEventListener('click', () => addDmTemplate('dm2List'));
+  document.getElementById('saveDm2').addEventListener('click', () => saveDmTemplates('dm2', 'dm2List', 'dm2Status'));
+  document.getElementById('addDm3').addEventListener('click', () => addDmTemplate('dm3List'));
+  document.getElementById('saveDm3').addEventListener('click', () => saveDmTemplates('dm3', 'dm3List', 'dm3Status'));
 
   // Cookie Sync
   document.getElementById('syncCookies').addEventListener('click', syncCookiesNow);
@@ -46,7 +50,7 @@ async function loadSettings() {
     'provider', 'apiKey', 'model', 'userContext', 'replyPrompt',
     'backendUrl', 'backendPassword',
     'cannedResponses',
-    'cannedDmMessages'
+    'dm1Templates', 'dm2Templates', 'dm3Templates'
   ]);
 
   // AI Settings
@@ -83,16 +87,34 @@ async function loadSettings() {
 
   renderCannedResponses(cannedResponses);
 
-  // Canned DM Messages
-  let cannedDmMessages = settings.cannedDmMessages || [];
-  if (cannedDmMessages.length === 0) {
-    cannedDmMessages = [
+  // 1st DM Templates (Initial Outreach)
+  let dm1Templates = settings.dm1Templates || [];
+  if (dm1Templates.length === 0) {
+    dm1Templates = [
       "Hey {name}! Saw your comment on my post and wanted to connect. I help [your service]. Would love to chat if you're interested!",
       "Hi {name}, thanks for engaging with my content! I noticed you're in [industry]. I have some resources that might help - would you like me to share?",
       "Hey {name}! Appreciate your thoughtful comment. I'm curious about your work - would you be open to a quick chat?"
     ];
   }
-  renderCannedDmMessages(cannedDmMessages);
+  renderDmTemplates(dm1Templates, 'dm1List');
+
+  // 2nd DM Templates (Follow-up)
+  let dm2Templates = settings.dm2Templates || [];
+  if (dm2Templates.length === 0) {
+    dm2Templates = [
+      "Perfect, that's exactly what Zero to Builder is for.\n8 weeks. Start with visual automations (quick wins), graduate to AI-assisted coding (Claude, Cursor).\nBy the end you'll have actually shipped something.\nWant the details?"
+    ];
+  }
+  renderDmTemplates(dm2Templates, 'dm2List');
+
+  // 3rd DM Templates (Call to Action)
+  let dm3Templates = settings.dm3Templates || [];
+  if (dm3Templates.length === 0) {
+    dm3Templates = [
+      "Here's the link to apply:\nhttps://www.aineversleeps.net/apply-zero-to-builder\nQuick form, then payment. We start January 15th, 12pm AEST.\nExcited to see what you build!"
+    ];
+  }
+  renderDmTemplates(dm3Templates, 'dm3List');
 
   // Update model options
   updateModelOptions();
@@ -291,9 +313,9 @@ async function saveCannedResponses() {
   showStatus('cannedStatus', 'Canned responses saved!', 'success');
 }
 
-// Canned DM Messages functions
-function renderCannedDmMessages(messages) {
-  const container = document.getElementById('cannedDmList');
+// Generic DM Templates functions (for 1st, 2nd, 3rd DM)
+function renderDmTemplates(messages, containerId) {
+  const container = document.getElementById(containerId);
   container.innerHTML = '';
 
   messages.forEach((message, index) => {
@@ -301,7 +323,7 @@ function renderCannedDmMessages(messages) {
     item.className = 'canned-item';
     item.innerHTML = `
       <div class="canned-item-row">
-        <textarea style="min-height: 60px; resize: vertical; flex: 1;" data-index="${index}">${escapeHtml(message)}</textarea>
+        <textarea style="min-height: 80px; resize: vertical; flex: 1;" data-index="${index}">${escapeHtml(message)}</textarea>
         <div style="display: flex; flex-direction: column; gap: 4px;">
           <button class="copy-dm-btn" data-index="${index}" style="padding: 4px 8px; background: #0077b5; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 11px;">Copy</button>
           <button class="remove-btn" data-index="${index}">X</button>
@@ -344,14 +366,14 @@ function renderCannedDmMessages(messages) {
   });
 }
 
-function addCannedDmMessage() {
-  const container = document.getElementById('cannedDmList');
+function addDmTemplate(containerId) {
+  const container = document.getElementById(containerId);
 
   const item = document.createElement('div');
   item.className = 'canned-item';
   item.innerHTML = `
     <div class="canned-item-row">
-      <textarea style="min-height: 60px; resize: vertical; flex: 1;" placeholder="Hey {name}! Great connecting with you..."></textarea>
+      <textarea style="min-height: 80px; resize: vertical; flex: 1;" placeholder="Hey {name}! Your message here..."></textarea>
       <div style="display: flex; flex-direction: column; gap: 4px;">
         <button class="copy-dm-btn" style="padding: 4px 8px; background: #0077b5; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 11px;">Copy</button>
         <button class="remove-btn">X</button>
@@ -390,15 +412,15 @@ function addCannedDmMessage() {
   });
 }
 
-async function saveCannedDmMessages() {
-  const items = document.querySelectorAll('#cannedDmList .canned-item');
+async function saveDmTemplates(storageKey, containerId, statusId) {
+  const items = document.querySelectorAll(`#${containerId} .canned-item`);
   const messages = Array.from(items)
     .map(item => item.querySelector('textarea').value.trim())
     .filter(text => text.length > 0);
 
-  await chrome.storage.sync.set({ cannedDmMessages: messages });
+  await chrome.storage.sync.set({ [`${storageKey}Templates`]: messages });
 
-  showStatus('cannedDmStatus', 'DM templates saved!', 'success');
+  showStatus(statusId, 'DM templates saved!', 'success');
 }
 
 function showStatus(elementId, message, type) {

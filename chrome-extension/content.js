@@ -709,24 +709,45 @@
   // DM Sidebar for Messaging Pages
   // =====================
 
-  let cannedDmMessages = [];
+  // DM Templates - organized by stage (1st, 2nd, 3rd DM)
+  let dmTemplates = {
+    dm1: [],
+    dm2: [],
+    dm3: []
+  };
+  let activeDmTab = 'dm1';
   let dmSidebarVisible = true; // Start visible
   let dmSidebarMinimized = false;
 
-  // Load canned DM messages
-  async function loadCannedDmMessages() {
-    const settings = await chrome.storage.sync.get(['cannedDmMessages']);
-    cannedDmMessages = settings.cannedDmMessages || [
-      "Hey {name}! Saw your comment on my post and wanted to connect. I help [your service]. Would love to chat if you're interested!",
-      "Hi {name}, thanks for engaging with my content! I noticed you're in [industry]. I have some resources that might help - would you like me to share?",
-      "Hey {name}! Appreciate your thoughtful comment. I'm curious about your work - would you be open to a quick chat?"
+  // Load DM templates for all tabs
+  async function loadDmTemplates() {
+    const settings = await chrome.storage.sync.get(['dm1Templates', 'dm2Templates', 'dm3Templates', 'cannedDmMessages']);
+
+    // Migrate old format if exists
+    if (settings.cannedDmMessages && !settings.dm1Templates) {
+      dmTemplates.dm1 = settings.cannedDmMessages;
+      await chrome.storage.sync.set({ dm1Templates: settings.cannedDmMessages });
+    } else {
+      dmTemplates.dm1 = settings.dm1Templates || [
+        "Hey {name}! Saw your comment on my post and wanted to connect. Would love to chat if you're interested!",
+        "Hi {name}, thanks for engaging with my content! Curious about your work.",
+        "Hey {name}! Appreciate your comment. Would you be open to a quick chat?"
+      ];
+    }
+
+    dmTemplates.dm2 = settings.dm2Templates || [
+      "Perfect, that's exactly what Zero to Builder is for.\n8 weeks. Start with visual automations (quick wins), graduate to AI-assisted coding (Claude, Cursor).\nBy the end you'll have actually shipped something.\nWant the details?"
+    ];
+
+    dmTemplates.dm3 = settings.dm3Templates || [
+      "Here's the link to apply:\nhttps://www.aineversleeps.net/apply-zero-to-builder\nQuick form, then payment. We start January 15th, 12pm AEST.\nExcited to see what you build!"
     ];
   }
 
-  // Save canned DM messages
-  async function saveCannedDmMessages() {
-    await chrome.storage.sync.set({ cannedDmMessages });
-    console.log('[LinkedIn Reply Bot] DM templates saved');
+  // Save DM templates for current tab
+  async function saveDmTemplates() {
+    await chrome.storage.sync.set({ [`${activeDmTab}Templates`]: dmTemplates[activeDmTab] });
+    console.log(`[LinkedIn Reply Bot] ${activeDmTab} templates saved`);
   }
 
   // Create floating DM sidebar
@@ -911,6 +932,32 @@
           font-size: 10px;
           color: #888;
         }
+        .dm-sidebar-tabs {
+          display: flex;
+          background: #f5f5f5;
+          border-bottom: 1px solid #e0e0e0;
+        }
+        .dm-sidebar-tab {
+          flex: 1;
+          padding: 10px 8px;
+          border: none;
+          background: transparent;
+          font-size: 12px;
+          font-weight: 600;
+          color: #666;
+          cursor: pointer;
+          border-bottom: 2px solid transparent;
+          transition: all 0.2s;
+        }
+        .dm-sidebar-tab:hover {
+          color: #0077b5;
+          background: rgba(0, 119, 181, 0.05);
+        }
+        .dm-sidebar-tab.active {
+          color: #0077b5;
+          border-bottom-color: #0077b5;
+          background: white;
+        }
       </style>
       <div class="dm-sidebar-header">
         <div class="dm-sidebar-header-left">
@@ -921,8 +968,13 @@
           <button class="dm-sidebar-btn dm-sidebar-minimize" title="Minimize">−</button>
         </div>
       </div>
+      <div class="dm-sidebar-tabs">
+        <button class="dm-sidebar-tab active" data-tab="dm1">1st DM</button>
+        <button class="dm-sidebar-tab" data-tab="dm2">2nd DM</button>
+        <button class="dm-sidebar-tab" data-tab="dm3">3rd DM</button>
+      </div>
       <div class="dm-sidebar-recipient" id="dm-sidebar-recipient">
-        Recipient: <strong id="dm-recipient-name">detecting...</strong>
+        To: <strong id="dm-recipient-name">detecting...</strong>
         <span id="dm-recipient-refresh" style="margin-left: 6px; cursor: pointer; opacity: 0.7;" title="Click to refresh">↻</span>
       </div>
       <div class="dm-sidebar-content" id="dm-sidebar-messages"></div>
@@ -943,6 +995,22 @@
     sidebar.querySelector('.dm-sidebar-minimize').addEventListener('click', (e) => {
       e.stopPropagation();
       toggleDmSidebarMinimize();
+    });
+
+    // Tab switching
+    sidebar.querySelectorAll('.dm-sidebar-tab').forEach(tab => {
+      tab.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const tabKey = tab.dataset.tab;
+        activeDmTab = tabKey;
+
+        // Update active tab styling
+        sidebar.querySelectorAll('.dm-sidebar-tab').forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+
+        // Re-render messages for selected tab
+        renderDmSidebarMessages();
+      });
     });
 
     // Refresh button next to recipient name
@@ -1083,10 +1151,14 @@
       recipientEl.textContent = recipientName || '(not detected)';
     }
 
-    if (cannedDmMessages.length === 0) {
-      container.innerHTML = '<div class="dm-sidebar-empty">No templates yet.<br>Click "Add Template" below.</div>';
+    // Get templates for current active tab
+    const currentTemplates = dmTemplates[activeDmTab] || [];
+
+    if (currentTemplates.length === 0) {
+      const tabLabels = { dm1: '1st DM', dm2: '2nd DM', dm3: '3rd DM' };
+      container.innerHTML = `<div class="dm-sidebar-empty">No ${tabLabels[activeDmTab]} templates yet.<br>Click "Add Template" below.</div>`;
     } else {
-      cannedDmMessages.forEach((message, index) => {
+      currentTemplates.forEach((message, index) => {
         const item = document.createElement('div');
         item.className = 'dm-sidebar-item';
         item.dataset.index = index;
@@ -1103,8 +1175,8 @@
           // Save on edit (debounced)
           clearTimeout(textarea.saveTimeout);
           textarea.saveTimeout = setTimeout(() => {
-            cannedDmMessages[index] = textarea.value;
-            saveCannedDmMessages();
+            dmTemplates[activeDmTab][index] = textarea.value;
+            saveDmTemplates();
           }, 500);
         });
 
@@ -1145,8 +1217,8 @@
         deleteBtn.innerHTML = '🗑';
         deleteBtn.title = 'Delete template';
         deleteBtn.addEventListener('click', () => {
-          cannedDmMessages.splice(index, 1);
-          saveCannedDmMessages();
+          dmTemplates[activeDmTab].splice(index, 1);
+          saveDmTemplates();
           renderDmSidebarMessages();
         });
 
@@ -1172,8 +1244,8 @@
     addBtn.className = 'dm-sidebar-add-btn';
     addBtn.textContent = '+ Add Template';
     addBtn.addEventListener('click', () => {
-      cannedDmMessages.push('Hey {name}! ');
-      saveCannedDmMessages();
+      dmTemplates[activeDmTab].push('Hey {name}! ');
+      saveDmTemplates();
       renderDmSidebarMessages();
       // Focus the new textarea
       setTimeout(() => {
@@ -1273,7 +1345,7 @@
     const existingSidebar = document.getElementById('reply-bot-dm-sidebar');
 
     if (isMessaging) {
-      loadCannedDmMessages().then(() => {
+      loadDmTemplates().then(() => {
         if (!existingSidebar) {
           createDmSidebar();
         }
