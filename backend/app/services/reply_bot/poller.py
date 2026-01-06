@@ -34,18 +34,48 @@ async def poll_single_post(post) -> dict:
     # Get recent comments
     comments = await client.get_post_comments(post.postUrl, limit=50)
 
-    # Filter to only new comments
+    # Filter to only new comments that we haven't already replied to
     new_comments = []
     for comment in comments:
+        commenter_url = safe_str(comment.get("commenterUrl", ""))
+        comment_text = safe_str(comment.get("text")) or ""
+
+        # Check if we've already processed this exact comment
         existing = await prisma.processedcomment.find_first(
             where={
                 "postId": post.id,
-                "commenterUrl": safe_str(comment.get("commenterUrl", "")),
-                "commentText": safe_str(comment.get("text")) or ""
+                "commenterUrl": commenter_url,
+                "commentText": comment_text
             }
         )
-        if not existing:
-            new_comments.append(comment)
+        if existing:
+            continue
+
+        # Check if we've already replied to this commenter on this post
+        already_replied = await prisma.processedcomment.find_first(
+            where={
+                "postId": post.id,
+                "commenterUrl": commenter_url,
+                "repliedAt": {"not": None}  # Has a reply
+            }
+        )
+        if already_replied:
+            logger.info(f"Skipping {commenter_url} - already replied on this post")
+            continue
+
+        # Check if there's a pending reply for this commenter on this post
+        pending_reply = await prisma.pendingreply.find_first(
+            where={
+                "postId": post.id,
+                "commenterUrl": commenter_url,
+                "status": {"in": ["pending", "sent"]}  # Either waiting for review or already sent
+            }
+        )
+        if pending_reply:
+            logger.info(f"Skipping {commenter_url} - has pending/sent reply")
+            continue
+
+        new_comments.append(comment)
 
     if not new_comments:
         # Update last polled even if no new comments
