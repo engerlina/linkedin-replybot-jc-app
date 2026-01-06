@@ -17,7 +17,7 @@ def main():
     print(f"Python: {sys.version}")
 
     # Check env vars
-    for var in ["DATABASE_URL", "ANTHROPIC_API_KEY", "JWT_SECRET", "ADMIN_PASSWORD"]:
+    for var in ["DATABASE_URL", "ANTHROPIC_API_KEY", "JWT_SECRET", "ADMIN_PASSWORD", "LINKEDAPI_API_KEY"]:
         status = "SET" if os.environ.get(var) else "MISSING"
         print(f"{var}: {status}", flush=True)
 
