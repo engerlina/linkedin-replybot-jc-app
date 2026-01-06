@@ -17,12 +17,11 @@ COPY prisma ./prisma
 # Copy application code
 COPY app ./app
 
-# Copy and make startup script executable
-COPY start.sh ./start.sh
-RUN chmod +x start.sh
+# Copy Python entrypoint
+COPY entrypoint.py ./entrypoint.py
 
 # Expose port
 EXPOSE 8000
 
-# Run the application with startup script for better error handling
-CMD ["./start.sh"]
+# Use Python entrypoint for better logging
+CMD ["python", "entrypoint.py"]
