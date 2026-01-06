@@ -5,10 +5,8 @@ generator client {
   recursive_type_depth = 5
 }
 
-generator client_js {
-  provider = "prisma-client-js"
-  output   = "../../frontend/node_modules/.prisma/client"
-}
+// Note: JS client generator removed for backend deployment
+// Frontend should have its own schema or use a shared one differently
 
 datasource db {
   provider = "postgresql"
