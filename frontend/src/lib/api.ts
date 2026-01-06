@@ -235,8 +235,8 @@ export interface LinkedInAccount {
 
 export interface CreateAccountRequest {
   name: string;
-  profileUrl: string;
   linkedApiToken: string;
+  profileUrl?: string;
   voiceTone?: string;
   voiceTopics?: string[];
   sampleComments?: string[];
