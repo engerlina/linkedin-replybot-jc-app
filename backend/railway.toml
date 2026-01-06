@@ -2,7 +2,7 @@
 builder = "dockerfile"
 
 [deploy]
-startCommand = "prisma migrate deploy && uvicorn app.main:app --host 0.0.0.0 --port $PORT"
+# Use Dockerfile CMD (python entrypoint.py)
 healthcheckPath = "/health"
 healthcheckTimeout = 300
 restartPolicyType = "on_failure"
