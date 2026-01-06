@@ -2,7 +2,7 @@ import logging
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from prisma.errors import RecordNotFoundError
+from prisma.errors import RecordNotFoundError, UniqueViolationError
 
 from app.api.routes.auth import get_current_user
 from app.db.client import prisma
@@ -83,8 +83,13 @@ async def update_account(account_id: str, req: UpdateAccountRequest, _=Depends(g
         return account
     except RecordNotFoundError:
         raise HTTPException(status_code=404, detail="Account not found")
+    except UniqueViolationError:
+        raise HTTPException(status_code=400, detail="This identification token is already used by another account")
     except Exception as e:
         logger.error(f"Failed to update account {account_id}: {e}")
+        # Check for unique constraint in error message as fallback
+        if "unique constraint" in str(e).lower() or "identificationtoken" in str(e).lower():
+            raise HTTPException(status_code=400, detail="This identification token is already used by another account")
         raise HTTPException(status_code=500, detail=str(e))
 
 
