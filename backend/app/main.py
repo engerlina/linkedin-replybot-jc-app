@@ -38,6 +38,18 @@ async def lifespan(app: FastAPI):
     # Startup
     logger.info("Starting LinkedIn Automation API...")
 
+    # Check for missing required config
+    missing_config = settings.validate_required()
+    if missing_config:
+        logger.error(f"Missing required environment variables: {', '.join(missing_config)}")
+        startup_status["error"] = f"Missing env vars: {', '.join(missing_config)}"
+        # Don't try to connect if DATABASE_URL is missing
+        if "DATABASE_URL" in missing_config:
+            logger.error("Cannot connect to database - DATABASE_URL not set")
+            startup_status["ready"] = True  # Mark as ready so health check responds
+            yield
+            return
+
     # Connect to database
     try:
         logger.info("Connecting to database...")
@@ -47,8 +59,10 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"Failed to connect to database: {e}")
         startup_status["error"] = f"Database connection failed: {str(e)}"
-        # Re-raise to prevent app from starting without DB
-        raise
+        # Don't crash - let app respond to health checks with error status
+        startup_status["ready"] = True
+        yield
+        return
 
     # Get settings from DB or use defaults
     try:
