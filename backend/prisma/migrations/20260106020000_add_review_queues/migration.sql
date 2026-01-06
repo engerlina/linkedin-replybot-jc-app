@@ -5,6 +5,9 @@ ALTER TABLE "LinkedInAccount" RENAME COLUMN "linkedApiToken" TO "identificationT
 DROP INDEX IF EXISTS "LinkedInAccount_linkedApiToken_key";
 CREATE UNIQUE INDEX "LinkedInAccount_identificationToken_key" ON "LinkedInAccount"("identificationToken");
 
+-- Add linkedApiKey to Settings
+ALTER TABLE "Settings" ADD COLUMN "linkedApiKey" TEXT;
+
 -- Add autoReply to MonitoredPost
 ALTER TABLE "MonitoredPost" ADD COLUMN "autoReply" BOOLEAN NOT NULL DEFAULT false;
 

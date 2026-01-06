@@ -353,6 +353,9 @@ model ActivityLog {
 model Settings {
   id String @id @default("global")
 
+  // LinkedAPI Configuration
+  linkedApiKey String? // Main linked-api-token (shared across all accounts)
+
   // Rate Limits
   maxDailyComments    Int @default(50)
   maxDailyConnections Int @default(25)

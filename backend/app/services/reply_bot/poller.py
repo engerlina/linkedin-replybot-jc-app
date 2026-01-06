@@ -7,7 +7,7 @@ from app.utils.humanizer import random_delay
 
 async def poll_single_post(post) -> dict:
     """Poll a single post for matching comments"""
-    client = LinkedAPIClient(post.account.identificationToken)
+    client = await LinkedAPIClient.create(post.account.identificationToken)
 
     # Get recent comments
     comments = await client.get_post_comments(post.postUrl, limit=50)

@@ -402,6 +402,7 @@ export interface ActivityLog {
 
 export interface Settings {
   id: string;
+  linkedApiKey: string | null;  // Main LinkedAPI API key (linked-api-token)
   maxDailyComments: number;
   maxDailyConnections: number;
   maxDailyMessages: number;

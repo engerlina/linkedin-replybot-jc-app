@@ -2,27 +2,49 @@ import asyncio
 import httpx
 from typing import Optional
 from app.config import settings
+from app.db.client import prisma
 
 
 class LinkedAPIError(Exception):
     pass
 
 
+async def get_linked_api_key() -> str:
+    """Get the LinkedAPI key from database or environment"""
+    # First try environment variable
+    if settings.LINKEDAPI_API_KEY:
+        return settings.LINKEDAPI_API_KEY
+
+    # Fall back to database settings
+    db_settings = await prisma.settings.find_first(where={"id": "global"})
+    if db_settings and db_settings.linkedApiKey:
+        return db_settings.linkedApiKey
+
+    raise LinkedAPIError("LinkedAPI key not configured. Set it in Settings or LINKEDAPI_API_KEY env var.")
+
+
 class LinkedAPIClient:
     BASE_URL = "https://api.linkedapi.io"
 
-    def __init__(self, identification_token: str):
+    def __init__(self, identification_token: str, api_key: str):
         """
         Initialize with both required LinkedAPI tokens:
-        - linked-api-token: Main API key from settings (LINKEDAPI_API_KEY)
-        - identification-token: Per-account token for the specific LinkedIn account
+        - api_key: Main linked-api-token (from env or database)
+        - identification_token: Per-account token for the specific LinkedIn account
         """
         self.identification_token = identification_token
+        self.api_key = api_key
         self.headers = {
-            "linked-api-token": settings.LINKEDAPI_API_KEY,
+            "linked-api-token": api_key,
             "identification-token": identification_token,
             "Content-Type": "application/json"
         }
+
+    @classmethod
+    async def create(cls, identification_token: str) -> "LinkedAPIClient":
+        """Factory method to create a client with the API key from database/env"""
+        api_key = await get_linked_api_key()
+        return cls(identification_token, api_key)
 
     async def execute(self, workflow: dict | list) -> dict:
         """Execute a LinkedAPI workflow and wait for completion"""

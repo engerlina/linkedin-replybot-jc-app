@@ -122,6 +122,39 @@ export default function SettingsPage() {
           </div>
         </div>
 
+        {/* LinkedAPI Configuration */}
+        {settings && (
+          <div className="bg-gray-800 rounded-lg p-6">
+            <h2 className="text-lg font-semibold text-white mb-4">LinkedAPI Configuration</h2>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-gray-300 mb-1">API Key (linked-api-token)</label>
+                <input
+                  type="password"
+                  value={settings.linkedApiKey || ''}
+                  onChange={(e) =>
+                    setSettings({ ...settings, linkedApiKey: e.target.value })
+                  }
+                  className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white"
+                  placeholder="Your main LinkedAPI key"
+                />
+                <p className="text-gray-500 text-xs mt-1">
+                  Get your API key from{' '}
+                  <a
+                    href="https://app.linkedapi.io"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-blue-400 hover:underline"
+                  >
+                    app.linkedapi.io
+                  </a>
+                  . This is shared across all LinkedIn accounts.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Rate Limits */}
         {settings && (
           <div className="bg-gray-800 rounded-lg p-6">
