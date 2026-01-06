@@ -14,6 +14,8 @@ export default function ReplyBotPage() {
   const [showForm, setShowForm] = useState(false);
   const [editingPrompt, setEditingPrompt] = useState<string | null>(null);
   const [promptText, setPromptText] = useState('');
+  const [pollingPostId, setPollingPostId] = useState<string | null>(null);
+  const [expandedPrompts, setExpandedPrompts] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     loadData();
@@ -54,13 +56,27 @@ export default function ReplyBotPage() {
   };
 
   const handlePoll = async (postId: string) => {
+    setPollingPostId(postId);
     try {
       const result = await api.triggerPoll(postId);
       alert(`Found ${result.commentsFound} comments, ${result.matchesFound} matches`);
       loadData();
     } catch (err) {
       console.error('Failed to poll', err);
+      alert('Failed to check post. Please try again.');
+    } finally {
+      setPollingPostId(null);
     }
+  };
+
+  const togglePromptExpanded = (postId: string) => {
+    const newExpanded = new Set(expandedPrompts);
+    if (newExpanded.has(postId)) {
+      newExpanded.delete(postId);
+    } else {
+      newExpanded.add(postId);
+    }
+    setExpandedPrompts(newExpanded);
   };
 
   const handleEditPrompt = (post: MonitoredPost) => {
@@ -112,20 +128,20 @@ export default function ReplyBotPage() {
           posts.map((post) => (
             <div key={post.id} className="bg-gray-800 rounded-lg p-6">
               <div className="flex justify-between items-start mb-4">
-                <div>
-                  <h3 className="text-white font-medium">
+                <div className="flex-1 min-w-0 mr-4">
+                  <h3 className="text-white font-medium text-lg">
                     {post.postTitle || 'Untitled Post'}
                   </h3>
                   <a
                     href={post.postUrl}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-blue-400 text-sm hover:underline"
+                    className="text-blue-400 text-sm hover:underline block truncate"
                   >
-                    {post.postUrl}
+                    {post.postUrl.length > 80 ? post.postUrl.slice(0, 80) + '...' : post.postUrl}
                   </a>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-shrink-0">
                   <button
                     onClick={() => handleToggleActive(post)}
                     className={`px-3 py-1 rounded text-sm ${
@@ -138,9 +154,17 @@ export default function ReplyBotPage() {
                   </button>
                   <button
                     onClick={() => handlePoll(post.id)}
-                    className="px-3 py-1 bg-purple-600 hover:bg-purple-700 text-white rounded text-sm"
+                    disabled={pollingPostId === post.id}
+                    className="px-3 py-1 bg-purple-600 hover:bg-purple-700 text-white rounded text-sm disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
                   >
-                    Poll Now
+                    {pollingPostId === post.id ? (
+                      <>
+                        <span className="animate-spin">↻</span>
+                        Checking...
+                      </>
+                    ) : (
+                      '⚡ Force Check'
+                    )}
                   </button>
                   <button
                     onClick={() => handleDelete(post.id)}
@@ -158,7 +182,7 @@ export default function ReplyBotPage() {
                     {post.keywords.map((kw, i) => (
                       <span
                         key={i}
-                        className="inline-block bg-gray-700 px-2 py-1 rounded mr-1 mb-1"
+                        className="inline-block bg-blue-600/30 text-blue-300 px-2 py-1 rounded mr-1 mb-1 font-medium"
                       >
                         {kw}
                       </span>
@@ -167,14 +191,14 @@ export default function ReplyBotPage() {
                 </div>
                 <div>
                   <span className="text-gray-400">CTA Type:</span>
-                  <p className="text-white mt-1">{post.ctaType}</p>
+                  <p className="text-white mt-1 capitalize">{post.ctaType.replace('_', ' ')}</p>
                 </div>
                 <div>
                   <span className="text-gray-400">Matches:</span>
-                  <p className="text-white mt-1">{post.totalMatches}</p>
+                  <p className="text-white mt-1 font-semibold">{post.totalMatches}</p>
                 </div>
                 <div>
-                  <span className="text-gray-400">Last Polled:</span>
+                  <span className="text-gray-400">Last Checked:</span>
                   <p className="text-white mt-1">
                     {post.lastPolledAt
                       ? formatRelativeTime(post.lastPolledAt)
@@ -186,22 +210,32 @@ export default function ReplyBotPage() {
               {/* AI Reply Prompt Section */}
               <div className="border-t border-gray-700 pt-4">
                 <div className="flex justify-between items-center mb-2">
-                  <span className="text-gray-400 text-sm">AI Reply Prompt:</span>
-                  {editingPrompt !== post.id && (
-                    <button
-                      onClick={() => handleEditPrompt(post)}
-                      className="text-blue-400 hover:text-blue-300 text-sm"
-                    >
-                      {post.replyStyle ? 'Edit' : 'Add Prompt'}
-                    </button>
-                  )}
+                  <span className="text-gray-400 text-sm font-medium">AI Reply Prompt:</span>
+                  <div className="flex gap-2">
+                    {post.replyStyle && post.replyStyle.length > 200 && editingPrompt !== post.id && (
+                      <button
+                        onClick={() => togglePromptExpanded(post.id)}
+                        className="text-gray-400 hover:text-gray-300 text-sm"
+                      >
+                        {expandedPrompts.has(post.id) ? '▼ Collapse' : '▶ Expand'}
+                      </button>
+                    )}
+                    {editingPrompt !== post.id && (
+                      <button
+                        onClick={() => handleEditPrompt(post)}
+                        className="text-blue-400 hover:text-blue-300 text-sm"
+                      >
+                        {post.replyStyle ? 'Edit' : 'Add Prompt'}
+                      </button>
+                    )}
+                  </div>
                 </div>
                 {editingPrompt === post.id ? (
                   <div className="space-y-2">
                     <textarea
                       value={promptText}
                       onChange={(e) => setPromptText(e.target.value)}
-                      className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white text-sm h-24 resize-none"
+                      className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white text-sm h-48 resize-y font-mono"
                       placeholder="E.g.: 'Be enthusiastic and mention our free consultation. Keep replies under 50 words.'"
                     />
                     <div className="flex gap-2 justify-end">
@@ -219,13 +253,24 @@ export default function ReplyBotPage() {
                       </button>
                     </div>
                   </div>
-                ) : (
-                  <p className="text-white text-sm bg-gray-700 rounded p-3">
-                    {post.replyStyle || (
-                      <span className="text-gray-500 italic">
-                        No custom prompt set. Using default AI behavior.
-                      </span>
+                ) : post.replyStyle ? (
+                  <div className="bg-gray-900 rounded border border-gray-700">
+                    <pre
+                      className={`text-gray-300 text-sm p-3 whitespace-pre-wrap font-mono overflow-x-auto ${
+                        !expandedPrompts.has(post.id) && post.replyStyle.length > 200
+                          ? 'max-h-24 overflow-hidden'
+                          : ''
+                      }`}
+                    >
+                      {post.replyStyle}
+                    </pre>
+                    {!expandedPrompts.has(post.id) && post.replyStyle.length > 200 && (
+                      <div className="bg-gradient-to-t from-gray-900 to-transparent h-8 -mt-8 relative pointer-events-none" />
                     )}
+                  </div>
+                ) : (
+                  <p className="text-gray-500 italic text-sm bg-gray-900 rounded p-3 border border-gray-700">
+                    No custom prompt set. Using default AI behavior.
                   </p>
                 )}
               </div>
