@@ -1072,3 +1072,117 @@ class LinkedInDirectClient:
             "publicIdentifier": response.get("miniProfile", {}).get("publicIdentifier", ""),
             "entityUrn": response.get("miniProfile", {}).get("entityUrn", "")
         }
+
+    async def get_sent_invitations(self, limit: int = 50) -> List[dict]:
+        """
+        Get list of sent connection invitations (pending).
+        This allows us to verify if connection requests were actually sent.
+        """
+        invitations = []
+
+        try:
+            # Try the newer dash endpoint first
+            response = await self._request(
+                "GET",
+                "/voyagerRelationshipsDashInvitations",
+                params={
+                    "q": "sent",
+                    "start": 0,
+                    "count": limit,
+                    "invitationType": "CONNECTION"
+                }
+            )
+
+            for element in response.get("elements", []):
+                invite = self._parse_invitation(element)
+                if invite:
+                    invitations.append(invite)
+
+            logger.info(f"Found {len(invitations)} sent invitations via dash endpoint")
+            return invitations
+
+        except LinkedInAPIError as e:
+            logger.warning(f"Dash invitations endpoint failed: {e}")
+
+        # Fallback to legacy endpoint
+        try:
+            response = await self._request(
+                "GET",
+                "/relationships/sentInvitationViewsV2",
+                params={
+                    "start": 0,
+                    "count": limit,
+                    "q": "sent"
+                }
+            )
+
+            for element in response.get("elements", []):
+                invite = self._parse_invitation(element)
+                if invite:
+                    invitations.append(invite)
+
+            logger.info(f"Found {len(invitations)} sent invitations via legacy endpoint")
+            return invitations
+
+        except LinkedInAPIError as e:
+            logger.warning(f"Legacy invitations endpoint failed: {e}")
+
+        # Try another format
+        try:
+            response = await self._request(
+                "GET",
+                "/growth/invitations",
+                params={
+                    "q": "sent",
+                    "start": 0,
+                    "count": limit
+                }
+            )
+
+            for element in response.get("elements", []):
+                invite = self._parse_invitation(element)
+                if invite:
+                    invitations.append(invite)
+
+            logger.info(f"Found {len(invitations)} sent invitations via growth endpoint")
+            return invitations
+
+        except LinkedInAPIError as e:
+            logger.error(f"All invitation endpoints failed: {e}")
+
+        return invitations
+
+    def _parse_invitation(self, element: dict) -> Optional[dict]:
+        """Parse an invitation element into standardized format"""
+        try:
+            # Try different response formats
+            invitee = element.get("invitee", {}) or element.get("toMember", {})
+            mini_profile = invitee.get("miniProfile", {}) or invitee.get("com.linkedin.voyager.identity.shared.MiniProfile", {})
+
+            if not mini_profile:
+                # Try included profiles
+                profile_urn = invitee.get("profileUrn") or invitee.get("entityUrn")
+                if profile_urn:
+                    return {
+                        "profileUrn": profile_urn,
+                        "name": "Unknown",
+                        "publicIdentifier": "",
+                        "sentAt": element.get("sentTime") or element.get("createdAt")
+                    }
+                return None
+
+            public_id = mini_profile.get("publicIdentifier", "")
+            first_name = mini_profile.get("firstName", "")
+            last_name = mini_profile.get("lastName", "")
+
+            return {
+                "profileUrn": mini_profile.get("entityUrn", ""),
+                "publicIdentifier": public_id,
+                "name": f"{first_name} {last_name}".strip(),
+                "linkedInUrl": f"https://www.linkedin.com/in/{public_id}" if public_id else "",
+                "headline": mini_profile.get("occupation", ""),
+                "sentAt": element.get("sentTime") or element.get("createdAt")
+            }
+        except Exception as e:
+            logger.warning(f"Failed to parse invitation: {e}")
+            return None

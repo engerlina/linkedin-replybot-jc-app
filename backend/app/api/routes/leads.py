@@ -649,6 +649,68 @@ async def debug_connection_request(lead_id: str, _=Depends(get_current_user)):
         }
 
 
+@router.get("/debug/sent-invitations")
+async def get_sent_invitations(accountId: Optional[str] = None, _=Depends(get_current_user)):
+    """Fetch actual sent invitations from LinkedIn to verify requests were sent"""
+    import logging
+    from app.services.linkedin.client import LinkedInDirectClient, LinkedInAuthError, LinkedInAPIError
+
+    logger = logging.getLogger(__name__)
+
+    # Get account with cookies
+    if accountId:
+        account = await prisma.linkedinaccount.find_unique(
+            where={"id": accountId},
+            include={"cookies": True}
+        )
+    else:
+        # Get first account with valid cookies
+        account = await prisma.linkedinaccount.find_first(
+            where={"cookies": {"isValid": True}},
+            include={"cookies": True}
+        )
+
+    if not account:
+        raise HTTPException(status_code=404, detail="No account found")
+
+    if not account.cookies or not account.cookies.isValid:
+        raise HTTPException(status_code=400, detail="No valid cookies for account")
+
+    try:
+        client = await LinkedInDirectClient.create(account.id)
+        invitations = await client.get_sent_invitations(limit=50)
+
+        # Check which of our leads are in the sent invitations
+        leads = await prisma.lead.find_many(
+            where={"accountId": account.id, "connectionStatus": "pending"}
+        )
+
+        lead_urls = {lead.linkedInUrl.rstrip('/').lower() for lead in leads}
+
+        matched = []
+        for invite in invitations:
+            invite_url = invite.get("linkedInUrl", "").rstrip('/').lower()
+            if invite_url and invite_url in lead_urls:
+                matched.append(invite)
+
+        return {
+            "success": True,
+            "account": account.name,
+            "total_sent_invitations": len(invitations),
+            "invitations": invitations[:20],  # First 20
+            "matched_with_pending_leads": len(matched),
+            "matched_leads": matched
+        }
+
+    except LinkedInAuthError as e:
+        raise HTTPException(status_code=401, detail=str(e))
+    except LinkedInAPIError as e:
+        raise HTTPException(status_code=502, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error fetching invitations: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/stats/summary")
 async def get_lead_stats(accountId: Optional[str] = None, _=Depends(get_current_user)):
     where = {}
