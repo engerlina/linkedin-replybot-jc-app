@@ -27,7 +27,8 @@ class ApiClient {
 
   private async request<T>(
     endpoint: string,
-    options: RequestInit = {}
+    options: RequestInit = {},
+    timeoutMs: number = 30000  // Default 30 second timeout
   ): Promise<T> {
     const token = this.getToken();
 
@@ -37,36 +38,50 @@ class ApiClient {
       ...options.headers,
     };
 
-    const response = await fetch(`${API_URL}${endpoint}`, {
-      ...options,
-      headers,
-    });
+    // Use AbortController for timeout
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
-    if (response.status === 401) {
-      this.clearToken();
-      if (typeof window !== 'undefined') {
-        window.location.href = '/';
+    try {
+      const response = await fetch(`${API_URL}${endpoint}`, {
+        ...options,
+        headers,
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+
+      if (response.status === 401) {
+        this.clearToken();
+        if (typeof window !== 'undefined') {
+          window.location.href = '/';
+        }
+        throw new Error('Unauthorized');
       }
-      throw new Error('Unauthorized');
-    }
 
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({}));
-      // Handle FastAPI validation errors (422) which return detail as array
-      let message = 'Request failed';
-      if (typeof error.detail === 'string') {
-        message = error.detail;
-      } else if (Array.isArray(error.detail) && error.detail.length > 0) {
-        // FastAPI validation error format: [{loc: [...], msg: "...", type: "..."}]
-        message = error.detail.map((e: { loc?: string[]; msg: string }) => {
-          const field = e.loc ? e.loc[e.loc.length - 1] : '';
-          return field ? `${field}: ${e.msg}` : e.msg;
-        }).join(', ');
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        // Handle FastAPI validation errors (422) which return detail as array
+        let message = 'Request failed';
+        if (typeof error.detail === 'string') {
+          message = error.detail;
+        } else if (Array.isArray(error.detail) && error.detail.length > 0) {
+          // FastAPI validation error format: [{loc: [...], msg: "...", type: "..."}]
+          message = error.detail.map((e: { loc?: string[]; msg: string }) => {
+            const field = e.loc ? e.loc[e.loc.length - 1] : '';
+            return field ? `${field}: ${e.msg}` : e.msg;
+          }).join(', ');
+        }
+        throw new Error(message);
       }
-      throw new Error(message);
-    }
 
-    return response.json();
+      return response.json();
+    } catch (error) {
+      clearTimeout(timeoutId);
+      if (error instanceof Error && error.name === 'AbortError') {
+        throw new Error('Request timed out. The operation is still processing in the background.');
+      }
+      throw error;
+    }
   }
 
   // Auth
@@ -232,23 +247,29 @@ class ApiClient {
     return this.request(`/api/leads/${id}`, { method: 'DELETE' });
   }
 
-  // Lead Actions
+  // Lead Actions (use longer timeout for LinkedAPI operations)
   async checkLeadConnection(id: string) {
-    return this.request<LeadActionResult>(`/api/leads/${id}/check-connection`, {
-      method: 'POST',
-    });
+    return this.request<LeadActionResult>(
+      `/api/leads/${id}/check-connection`,
+      { method: 'POST' },
+      120000  // 2 minute timeout for LinkedAPI
+    );
   }
 
   async sendLeadConnection(id: string) {
-    return this.request<LeadActionResult>(`/api/leads/${id}/send-connection`, {
-      method: 'POST',
-    });
+    return this.request<LeadActionResult>(
+      `/api/leads/${id}/send-connection`,
+      { method: 'POST' },
+      120000  // 2 minute timeout for LinkedAPI
+    );
   }
 
   async sendLeadDM(id: string) {
-    return this.request<LeadActionResult>(`/api/leads/${id}/send-dm`, {
-      method: 'POST',
-    });
+    return this.request<LeadActionResult>(
+      `/api/leads/${id}/send-dm`,
+      { method: 'POST' },
+      120000  // 2 minute timeout for LinkedAPI
+    );
   }
 
   async markLeadDMSent(id: string) {

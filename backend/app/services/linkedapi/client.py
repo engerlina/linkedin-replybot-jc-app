@@ -48,6 +48,9 @@ class LinkedAPIClient:
 
     async def execute(self, workflow: dict | list) -> dict:
         """Execute a LinkedAPI workflow and wait for completion"""
+        import logging
+        logger = logging.getLogger(__name__)
+
         async with httpx.AsyncClient(timeout=120.0) as client:
             # Start workflow - send workflow directly (not wrapped)
             response = await client.post(
@@ -57,6 +60,7 @@ class LinkedAPIClient:
             )
             response.raise_for_status()
             data = response.json()
+            logger.info(f"LinkedAPI workflow started: {data}")
 
             # workflowId is in result.workflowId
             workflow_id = data.get("result", {}).get("workflowId") or data.get("workflowId")
@@ -64,7 +68,7 @@ class LinkedAPIClient:
                 raise LinkedAPIError(f"No workflow ID in response: {data}")
 
             # Poll for completion
-            for _ in range(60):  # Max 2 minutes
+            for i in range(60):  # Max 2 minutes
                 await asyncio.sleep(2)
 
                 status_response = await client.get(
@@ -77,13 +81,22 @@ class LinkedAPIClient:
                 result = status_data.get("result", {})
                 status = result.get("workflowStatus", status_data.get("status"))
 
+                # Log every 5th poll to avoid spam
+                if i % 5 == 0:
+                    logger.info(f"LinkedAPI workflow {workflow_id} status: {status}")
+
                 if status == "completed":
+                    logger.info(f"LinkedAPI workflow completed: {result.get('completion', {})}")
                     return result.get("completion", {})
                 elif status == "failed":
                     error = result.get("error") or status_data.get("error", "Workflow failed")
+                    logger.error(f"LinkedAPI workflow failed: {error}")
                     raise LinkedAPIError(error)
+                elif status in ("cancelled", "canceled"):
+                    raise LinkedAPIError("Workflow was cancelled")
 
-            raise LinkedAPIError("Workflow timeout")
+            logger.error(f"LinkedAPI workflow timeout after 2 minutes. Last status: {status}")
+            raise LinkedAPIError("Workflow timeout - operation may still be processing")
 
     # Convenience methods
     async def get_post_comments(self, post_url: str, limit: int = 50) -> list:
