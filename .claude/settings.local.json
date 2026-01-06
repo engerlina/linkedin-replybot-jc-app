@@ -23,7 +23,8 @@
       "Bash(timeout 10 railway logs:*)",
       "Bash(timeout 45 railway logs:*)",
       "Bash(powershell -Command \"Get-Content ''C:\\\\Users\\\\jonoc\\\\AppData\\\\Local\\\\Google\\\\Chrome\\\\User Data\\\\Default\\\\Extensions\\\\jdedmecbcembcmlddbchlmmoglcldghe\\\\0.265.0_0\\\\static\\\\background\\\\index.js'' -TotalCount 50\")",
-      "Bash(timeout 90 railway logs:*)"
+      "Bash(timeout 90 railway logs:*)",
+      "Bash(timeout 20 railway logs:*)"
     ]
   }
 }

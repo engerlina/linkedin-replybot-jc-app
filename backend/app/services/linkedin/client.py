@@ -669,54 +669,93 @@ class LinkedInDirectClient:
 
             logger.info(f"Sending message to {public_id} using URN: {member_urn}")
 
-            # Try the newer messaging endpoint format first
             import time
+            import uuid
 
-            # Method 1: Try voyagerMessagingDashMessengerConversations (newer)
+            # Method 1: Try voyagerMessagingDashMessengerMessages with correct format
             try:
-                payload = {
+                # The URN needs to be in a specific format for messaging
+                # hostRecipientUrn should be the conversation participant URN
+                message_payload = {
                     "dedupeByClientGeneratedToken": False,
                     "hostRecipientUrn": member_urn,
                     "message": {
                         "body": {
-                            "attributes": [],
-                            "text": text
+                            "text": text,
+                            "attributes": []
                         },
-                        "originToken": str(int(time.time() * 1000)),
+                        "originToken": str(uuid.uuid4()),
                         "renderContentUnions": []
                     }
                 }
 
+                logger.info(f"Trying voyagerMessagingDash with payload keys: {list(message_payload.keys())}")
+
                 await self._request(
                     "POST",
                     "/voyagerMessagingDashMessengerMessages?action=createMessage",
-                    json_data=payload
+                    json_data=message_payload
                 )
                 logger.info(f"Sent message to {public_id} via voyagerMessagingDash")
                 return True
             except LinkedInAPIError as e:
-                logger.warning(f"voyagerMessagingDash failed: {e}, trying legacy endpoint")
+                logger.warning(f"voyagerMessagingDash failed: {e}")
 
-            # Method 2: Try the legacy messaging/conversations endpoint
-            payload = {
-                "keyVersion": "LEGACY_INBOX",
-                "conversationCreate": {
-                    "recipients": [member_urn],
-                    "subtype": "MEMBER_TO_MEMBER"
-                },
-                "message": {
-                    "body": text,
-                    "originToken": f"web_{int(time.time() * 1000)}"
+            # Method 2: Try messaging/conversations with miniProfile format
+            try:
+                # Try with urn:li:fs_miniProfile format
+                mini_profile_urn = member_urn.replace("fsd_profile", "fs_miniProfile")
+
+                payload = {
+                    "keyVersion": "LEGACY_INBOX",
+                    "conversationCreate": {
+                        "recipients": [mini_profile_urn],
+                        "subtype": "MEMBER_TO_MEMBER"
+                    },
+                    "message": {
+                        "body": text,
+                        "originToken": str(uuid.uuid4())
+                    }
                 }
-            }
 
-            await self._request(
-                "POST",
-                "/messaging/conversations",
-                json_data=payload
-            )
-            logger.info(f"Sent message to {public_id} via legacy endpoint")
-            return True
+                logger.info(f"Trying legacy endpoint with miniProfile URN: {mini_profile_urn}")
+
+                await self._request(
+                    "POST",
+                    "/messaging/conversations",
+                    json_data=payload
+                )
+                logger.info(f"Sent message to {public_id} via legacy endpoint")
+                return True
+            except LinkedInAPIError as e:
+                logger.warning(f"Legacy messaging failed with miniProfile URN: {e}")
+
+            # Method 3: Try with original fsd_profile URN
+            try:
+                payload = {
+                    "keyVersion": "LEGACY_INBOX",
+                    "conversationCreate": {
+                        "recipients": [member_urn],
+                        "subtype": "MEMBER_TO_MEMBER"
+                    },
+                    "message": {
+                        "body": text,
+                        "originToken": str(uuid.uuid4())
+                    }
+                }
+
+                logger.info(f"Trying legacy endpoint with fsd_profile URN: {member_urn}")
+
+                await self._request(
+                    "POST",
+                    "/messaging/conversations",
+                    json_data=payload
+                )
+                logger.info(f"Sent message to {public_id} via legacy endpoint (fsd_profile)")
+                return True
+            except LinkedInAPIError as e:
+                logger.error(f"All messaging methods failed: {e}")
+                raise
 
         except LinkedInAPIError as e:
             logger.error(f"Failed to send message: {e}")
