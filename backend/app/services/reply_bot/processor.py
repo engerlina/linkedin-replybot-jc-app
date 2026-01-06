@@ -9,12 +9,14 @@ from app.utils.humanizer import random_delay
 
 async def log_activity(account_id: str, action: str, status: str, details: dict = None):
     """Log an activity"""
+    from prisma import Json
+
     await prisma.activitylog.create(
         data={
-            "accountId": account_id,
+            "account": {"connect": {"id": account_id}},
             "action": action,
             "status": status,
-            "details": details or {}
+            "details": Json(details) if details else None
         }
     )
 
