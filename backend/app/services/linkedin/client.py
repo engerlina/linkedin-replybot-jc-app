@@ -633,24 +633,87 @@ class LinkedInDirectClient:
 
             logger.info(f"Sending connection request to {public_id} using URN: {member_urn}")
 
-            payload = {
-                "invitee": {
-                    "com.linkedin.voyager.growth.invitation.InviteeProfile": {
-                        "profileUrn": member_urn
+            # Method 1: Try with fsd_profile URN (newer format)
+            try:
+                payload = {
+                    "invitee": {
+                        "com.linkedin.voyager.growth.invitation.InviteeProfile": {
+                            "profileUrn": member_urn
+                        }
                     }
                 }
-            }
+                if note:
+                    payload["message"] = note[:300]
 
-            if note:
-                payload["message"] = note[:300]  # LinkedIn limit
+                await self._request(
+                    "POST",
+                    "/growth/normInvitations",
+                    json_data=payload
+                )
+                logger.info(f"Sent connection request to {public_id} via normInvitations")
+                return True
+            except LinkedInAPIError as e:
+                logger.warning(f"normInvitations failed with fsd_profile: {e}")
 
-            await self._request(
-                "POST",
-                "/growth/normInvitations",
-                json_data=payload
-            )
-            logger.info(f"Sent connection request to {public_id}")
-            return True
+            # Method 2: Try voyagerRelationshipsDashMemberRelationships
+            try:
+                payload = {
+                    "inviteeProfileUrn": member_urn,
+                    "invitationType": "CONNECTION"
+                }
+                if note:
+                    payload["customMessage"] = note[:300]
+
+                await self._request(
+                    "POST",
+                    "/voyagerRelationshipsDashMemberRelationships?action=connect",
+                    json_data=payload
+                )
+                logger.info(f"Sent connection request to {public_id} via voyagerRelationshipsDash")
+                return True
+            except LinkedInAPIError as e:
+                logger.warning(f"voyagerRelationshipsDash failed: {e}")
+
+            # Method 3: Try with fs_miniProfile URN format
+            try:
+                mini_profile_urn = member_urn.replace("fsd_profile", "fs_miniProfile")
+                payload = {
+                    "invitee": {
+                        "com.linkedin.voyager.growth.invitation.InviteeProfile": {
+                            "profileUrn": mini_profile_urn
+                        }
+                    }
+                }
+                if note:
+                    payload["message"] = note[:300]
+
+                await self._request(
+                    "POST",
+                    "/growth/normInvitations",
+                    json_data=payload
+                )
+                logger.info(f"Sent connection request to {public_id} via fs_miniProfile")
+                return True
+            except LinkedInAPIError as e:
+                logger.warning(f"normInvitations failed with fs_miniProfile: {e}")
+
+            # Method 4: Try relationships/invitation endpoint
+            try:
+                payload = {
+                    "inviteeUrn": member_urn,
+                    "message": note[:300] if note else ""
+                }
+
+                await self._request(
+                    "POST",
+                    "/relationships/invitation",
+                    json_data=payload
+                )
+                logger.info(f"Sent connection request to {public_id} via relationships/invitation")
+                return True
+            except LinkedInAPIError as e:
+                logger.error(f"All connection request methods failed. Last error: {e}")
+                return False
 
         except LinkedInAPIError as e:
             logger.error(f"Failed to send connection request: {e}")

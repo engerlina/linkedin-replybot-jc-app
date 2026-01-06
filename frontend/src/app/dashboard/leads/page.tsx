@@ -16,6 +16,11 @@ export default function LeadsPage() {
     dmStatus: '',
   });
   const [activeQueue, setActiveQueue] = useState<'all' | 'connection' | 'dm'>('all');
+  const [counts, setCounts] = useState({
+    total: 0,
+    connectionQueue: 0,  // not_connected
+    dmQueue: 0,          // connected + not_sent
+  });
 
   // DM Preview Modal state
   const [dmPreviewModal, setDmPreviewModal] = useState<{
@@ -40,6 +45,24 @@ export default function LeadsPage() {
     loadData();
   }, [filter]);
 
+  // Load counts on initial mount
+  useEffect(() => {
+    loadCounts();
+  }, []);
+
+  const loadCounts = async () => {
+    try {
+      // Fetch all leads to calculate counts
+      const allLeads = await api.getLeads({});
+      const total = allLeads.length;
+      const connectionQueue = allLeads.filter(l => l.connectionStatus === 'not_connected' || l.connectionStatus === 'unknown').length;
+      const dmQueue = allLeads.filter(l => l.connectionStatus === 'connected' && l.dmStatus !== 'sent').length;
+      setCounts({ total, connectionQueue, dmQueue });
+    } catch (err) {
+      console.error('Failed to load counts', err);
+    }
+  };
+
   const loadData = async () => {
     try {
       const data = await api.getLeads({
@@ -47,6 +70,8 @@ export default function LeadsPage() {
         dmStatus: filter.dmStatus || undefined,
       });
       setLeads(data);
+      // Also refresh counts when data changes
+      loadCounts();
     } catch (err) {
       console.error('Failed to load leads', err);
     } finally {
@@ -189,34 +214,56 @@ export default function LeadsPage() {
       <div className="flex gap-2 mb-4">
         <button
           onClick={() => setQueue('all')}
-          className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+          className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2 ${
             activeQueue === 'all'
               ? 'bg-blue-600 text-white'
               : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
           }`}
         >
           All Leads
+          <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${
+            activeQueue === 'all' ? 'bg-blue-500' : 'bg-gray-600'
+          }`}>
+            {counts.total}
+          </span>
         </button>
         <button
           onClick={() => setQueue('connection')}
-          className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+          className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2 ${
             activeQueue === 'connection'
               ? 'bg-yellow-600 text-white'
               : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
           }`}
         >
           Connection Queue
+          <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${
+            activeQueue === 'connection' ? 'bg-yellow-500' : 'bg-gray-600'
+          }`}>
+            {counts.connectionQueue}
+          </span>
         </button>
         <button
           onClick={() => setQueue('dm')}
-          className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+          className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2 ${
             activeQueue === 'dm'
               ? 'bg-green-600 text-white'
               : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
           }`}
         >
           DM Queue
+          <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${
+            activeQueue === 'dm' ? 'bg-green-500' : 'bg-gray-600'
+          }`}>
+            {counts.dmQueue}
+          </span>
         </button>
+      </div>
+
+      {/* Current view count */}
+      <div className="text-gray-400 text-sm mb-4">
+        Showing {leads.length} of {counts.total} leads
+        {activeQueue === 'connection' && ' (need connection)'}
+        {activeQueue === 'dm' && ' (ready for DM)'}
       </div>
 
       {/* Filters */}
@@ -385,29 +432,29 @@ export default function LeadsPage() {
                         </button>
                       )}
 
-                      {/* Open LinkedIn Messages (deep link) */}
+                      {/* Open LinkedIn Profile - always show when URL exists */}
+                      {lead.linkedInUrl && (
+                        <a
+                          href={lead.linkedInUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          title="Open LinkedIn Profile"
+                          className="p-1.5 rounded bg-blue-600 hover:bg-blue-500 text-white transition-colors inline-flex items-center justify-center"
+                        >
+                          <ExternalLinkIcon />
+                        </a>
+                      )}
+
+                      {/* Open LinkedIn Messages (deep link) - for connected users */}
                       {lead.linkedInUrl && lead.connectionStatus === 'connected' && (
                         <a
                           href={getLinkedInMessageUrl(lead.linkedInUrl)}
                           target="_blank"
                           rel="noopener noreferrer"
-                          title="Open LinkedIn Messages"
+                          title="Open LinkedIn Messages (Direct Message)"
                           className="p-1.5 rounded bg-purple-600 hover:bg-purple-500 text-white transition-colors inline-flex items-center justify-center"
                         >
                           <ExternalMessageIcon />
-                        </a>
-                      )}
-
-                      {/* Open LinkedIn Profile (for non-connected) */}
-                      {lead.linkedInUrl && lead.connectionStatus !== 'connected' && (
-                        <a
-                          href={lead.linkedInUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          title="Open LinkedIn Profile (to connect manually)"
-                          className="p-1.5 rounded bg-gray-600 hover:bg-gray-500 text-white transition-colors inline-flex items-center justify-center"
-                        >
-                          <ExternalLinkIcon />
                         </a>
                       )}
 

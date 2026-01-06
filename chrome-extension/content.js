@@ -705,6 +705,332 @@
     scanForComments();
   };
 
+  // =====================
+  // DM Sidebar for Messaging Pages
+  // =====================
+
+  let cannedDmMessages = [];
+  let dmSidebarVisible = false;
+
+  // Load canned DM messages
+  async function loadCannedDmMessages() {
+    const settings = await chrome.storage.sync.get(['cannedDmMessages']);
+    cannedDmMessages = settings.cannedDmMessages || [
+      "Hey {name}! Saw your comment on my post and wanted to connect. I help [your service]. Would love to chat if you're interested!",
+      "Hi {name}, thanks for engaging with my content! I noticed you're in [industry]. I have some resources that might help - would you like me to share?",
+      "Hey {name}! Appreciate your thoughtful comment. I'm curious about your work - would you be open to a quick chat?"
+    ];
+  }
+
+  // Create floating DM sidebar
+  function createDmSidebar() {
+    if (document.getElementById('reply-bot-dm-sidebar')) return;
+
+    const sidebar = document.createElement('div');
+    sidebar.id = 'reply-bot-dm-sidebar';
+    sidebar.innerHTML = `
+      <style>
+        #reply-bot-dm-sidebar {
+          position: fixed;
+          right: 20px;
+          top: 100px;
+          width: 320px;
+          max-height: 500px;
+          background: white;
+          border-radius: 12px;
+          box-shadow: 0 8px 32px rgba(0,0,0,0.15);
+          z-index: 9999;
+          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+          overflow: hidden;
+          display: none;
+        }
+        #reply-bot-dm-sidebar.visible {
+          display: block;
+        }
+        .dm-sidebar-header {
+          background: linear-gradient(135deg, #0077b5 0%, #00a0dc 100%);
+          color: white;
+          padding: 12px 16px;
+          font-weight: 600;
+          font-size: 14px;
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+        }
+        .dm-sidebar-close {
+          background: none;
+          border: none;
+          color: white;
+          cursor: pointer;
+          font-size: 18px;
+          padding: 0;
+          line-height: 1;
+        }
+        .dm-sidebar-content {
+          max-height: 400px;
+          overflow-y: auto;
+          padding: 12px;
+        }
+        .dm-sidebar-item {
+          background: #f5f5f5;
+          border-radius: 8px;
+          padding: 12px;
+          margin-bottom: 10px;
+          cursor: pointer;
+          transition: all 0.2s;
+          font-size: 13px;
+          line-height: 1.4;
+          color: #333;
+          position: relative;
+        }
+        .dm-sidebar-item:hover {
+          background: #e8f4fc;
+          transform: translateX(-2px);
+        }
+        .dm-sidebar-item.copied {
+          background: #e8f5e9;
+        }
+        .dm-sidebar-item-text {
+          display: -webkit-box;
+          -webkit-line-clamp: 3;
+          -webkit-box-orient: vertical;
+          overflow: hidden;
+        }
+        .dm-sidebar-copy-hint {
+          font-size: 10px;
+          color: #888;
+          margin-top: 6px;
+          text-align: right;
+        }
+        .dm-sidebar-item.copied .dm-sidebar-copy-hint {
+          color: #2e7d32;
+          font-weight: 600;
+        }
+        .dm-sidebar-empty {
+          text-align: center;
+          color: #888;
+          padding: 20px;
+          font-size: 13px;
+        }
+        .dm-sidebar-footer {
+          padding: 10px 16px;
+          border-top: 1px solid #eee;
+          font-size: 11px;
+          color: #666;
+          text-align: center;
+        }
+        .dm-sidebar-footer a {
+          color: #0077b5;
+          text-decoration: none;
+        }
+      </style>
+      <div class="dm-sidebar-header">
+        <span>📋 DM Templates</span>
+        <button class="dm-sidebar-close" title="Close">×</button>
+      </div>
+      <div class="dm-sidebar-content" id="dm-sidebar-messages"></div>
+      <div class="dm-sidebar-footer">
+        Click to copy • Edit templates in <a href="#" id="dm-sidebar-settings">extension settings</a>
+      </div>
+    `;
+
+    document.body.appendChild(sidebar);
+
+    // Close button
+    sidebar.querySelector('.dm-sidebar-close').addEventListener('click', () => {
+      toggleDmSidebar(false);
+    });
+
+    // Settings link
+    sidebar.querySelector('#dm-sidebar-settings').addEventListener('click', (e) => {
+      e.preventDefault();
+      chrome.runtime.sendMessage({ action: 'openPopup' });
+    });
+
+    return sidebar;
+  }
+
+  // Render DM messages in sidebar
+  function renderDmSidebarMessages() {
+    const container = document.getElementById('dm-sidebar-messages');
+    if (!container) return;
+
+    container.innerHTML = '';
+
+    if (cannedDmMessages.length === 0) {
+      container.innerHTML = '<div class="dm-sidebar-empty">No DM templates configured.<br>Add templates in the extension popup.</div>';
+      return;
+    }
+
+    cannedDmMessages.forEach((message, index) => {
+      const item = document.createElement('div');
+      item.className = 'dm-sidebar-item';
+      item.dataset.index = index;
+
+      // Try to get recipient name from the messaging page
+      const recipientName = getMessagingRecipientName();
+      const personalizedMessage = message.replace(/\{name\}/g, recipientName || '[Name]');
+
+      item.innerHTML = `
+        <div class="dm-sidebar-item-text">${escapeHtml(personalizedMessage)}</div>
+        <div class="dm-sidebar-copy-hint">Click to copy</div>
+      `;
+
+      item.addEventListener('click', async () => {
+        try {
+          await navigator.clipboard.writeText(personalizedMessage);
+          item.classList.add('copied');
+          item.querySelector('.dm-sidebar-copy-hint').textContent = 'Copied!';
+
+          // Try to paste into message input
+          insertIntoMessageInput(personalizedMessage);
+
+          setTimeout(() => {
+            item.classList.remove('copied');
+            item.querySelector('.dm-sidebar-copy-hint').textContent = 'Click to copy';
+          }, 2000);
+        } catch (err) {
+          console.error('Failed to copy:', err);
+        }
+      });
+
+      container.appendChild(item);
+    });
+  }
+
+  // Get recipient name from messaging page
+  function getMessagingRecipientName() {
+    // Try various selectors for the conversation header
+    const selectors = [
+      '.msg-overlay-conversation-bubble__title',
+      '.msg-conversation-card__title',
+      '.msg-thread__link-to-profile',
+      '.msg-title-bar .truncate',
+      '.msg-thread__link-to-profile span',
+      'h2.msg-overlay-bubble-header__title'
+    ];
+
+    for (const selector of selectors) {
+      const el = document.querySelector(selector);
+      if (el && el.textContent.trim()) {
+        // Extract first name
+        const fullName = el.textContent.trim();
+        return fullName.split(' ')[0];
+      }
+    }
+
+    return null;
+  }
+
+  // Try to insert message into LinkedIn's message input
+  function insertIntoMessageInput(text) {
+    const inputSelectors = [
+      '.msg-form__contenteditable',
+      '.msg-overlay-conversation-bubble .msg-form__contenteditable',
+      '[data-artdeco-is-focused] .msg-form__contenteditable',
+      '.msg-form__message-texteditor .msg-form__contenteditable'
+    ];
+
+    for (const selector of inputSelectors) {
+      const input = document.querySelector(selector);
+      if (input) {
+        input.focus();
+        input.innerHTML = `<p>${text}</p>`;
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+        console.log('[LinkedIn Reply Bot] Inserted message into input');
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  // Toggle sidebar visibility
+  function toggleDmSidebar(visible) {
+    const sidebar = document.getElementById('reply-bot-dm-sidebar') || createDmSidebar();
+    dmSidebarVisible = visible !== undefined ? visible : !dmSidebarVisible;
+
+    if (dmSidebarVisible) {
+      sidebar.classList.add('visible');
+      renderDmSidebarMessages();
+    } else {
+      sidebar.classList.remove('visible');
+    }
+  }
+
+  // Create floating toggle button
+  function createDmToggleButton() {
+    if (document.getElementById('reply-bot-dm-toggle')) return;
+
+    const toggle = document.createElement('button');
+    toggle.id = 'reply-bot-dm-toggle';
+    toggle.innerHTML = '📋';
+    toggle.title = 'Toggle DM Templates';
+    toggle.style.cssText = `
+      position: fixed;
+      right: 20px;
+      top: 50px;
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #0077b5 0%, #00a0dc 100%);
+      border: none;
+      color: white;
+      font-size: 20px;
+      cursor: pointer;
+      z-index: 9998;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+      transition: transform 0.2s;
+    `;
+
+    toggle.addEventListener('mouseenter', () => {
+      toggle.style.transform = 'scale(1.1)';
+    });
+    toggle.addEventListener('mouseleave', () => {
+      toggle.style.transform = 'scale(1)';
+    });
+    toggle.addEventListener('click', () => {
+      toggleDmSidebar();
+    });
+
+    document.body.appendChild(toggle);
+  }
+
+  // Check if on messaging page and initialize sidebar
+  function checkMessagingPage() {
+    const isMessaging = window.location.pathname.includes('/messaging') ||
+                        document.querySelector('.msg-overlay-conversation-bubble') ||
+                        document.querySelector('.msg-thread');
+
+    if (isMessaging) {
+      loadCannedDmMessages().then(() => {
+        createDmToggleButton();
+        createDmSidebar();
+      });
+    }
+  }
+
+  // Escape HTML helper
+  function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+  }
+
+  // Watch for navigation to messaging
+  let lastUrl = window.location.href;
+  const urlObserver = new MutationObserver(() => {
+    if (window.location.href !== lastUrl) {
+      lastUrl = window.location.href;
+      checkMessagingPage();
+    }
+  });
+  urlObserver.observe(document.body, { childList: true, subtree: true });
+
+  // Initial check for messaging page
+  setTimeout(checkMessagingPage, 1000);
+
   // Start
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', init);
