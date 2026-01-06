@@ -302,14 +302,16 @@ function AddPostForm({
     replyStyle: '',
   });
   const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState('');
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.accountId) {
-      alert('Please select a LinkedIn account');
+      setError('Please select a LinkedIn account');
       return;
     }
     setSubmitting(true);
+    setError('');
     try {
       await api.createMonitoredPost({
         ...formData,
@@ -318,6 +320,7 @@ function AddPostForm({
       onSuccess();
     } catch (err) {
       console.error('Failed to create post', err);
+      setError(err instanceof Error ? err.message : 'Failed to add post');
     } finally {
       setSubmitting(false);
     }
@@ -441,6 +444,11 @@ function AddPostForm({
               Guide the AI on tone, style, and what to include in replies
             </p>
           </div>
+          {error && (
+            <div className="bg-red-900/50 border border-red-500 text-red-300 px-4 py-3 rounded">
+              {error}
+            </div>
+          )}
           <div className="flex gap-2 justify-end">
             <button
               type="button"
