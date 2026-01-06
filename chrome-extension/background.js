@@ -193,6 +193,13 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true;
   }
 
+  if (request.action === 'addToFlowWithCheck') {
+    addToFlowWithCheck(request)
+      .then(result => sendResponse({ success: true, ...result }))
+      .catch(error => sendResponse({ success: false, error: error.message }));
+    return true;
+  }
+
   if (request.action === 'getSettings') {
     chrome.storage.sync.get(null, (settings) => {
       sendResponse({ success: true, settings });
@@ -579,4 +586,95 @@ async function addToFlowWithConnect(request) {
   }
 
   return result;
+}
+
+// Add to flow with check if lead already exists
+async function addToFlowWithCheck(request) {
+  const settings = await chrome.storage.sync.get(['backendUrl', 'backendPassword', 'backendToken']);
+  let { backendUrl, backendPassword, backendToken } = settings;
+
+  if (!backendUrl) {
+    throw new Error('Backend URL not configured');
+  }
+
+  backendUrl = backendUrl.replace(/\/$/, '');
+
+  // Get or refresh token
+  if (!backendToken) {
+    if (!backendPassword) {
+      throw new Error('Backend password not configured');
+    }
+    backendToken = await loginToBackend(backendUrl, backendPassword);
+  }
+
+  const { commenterUrl, commenterName, commenterHeadline, postUrl, replyText } = request;
+
+  console.log('[LinkedIn Reply Bot] Add to flow with check:', { commenterName, commenterUrl });
+
+  // Helper to make authenticated requests with retry
+  async function makeRequest(url, options) {
+    let response = await fetch(url, {
+      ...options,
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${backendToken}`,
+        ...options.headers
+      }
+    });
+
+    if (response.status === 401) {
+      // Token expired, refresh and retry
+      backendToken = await loginToBackend(backendUrl, backendPassword);
+      response = await fetch(url, {
+        ...options,
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${backendToken}`,
+          ...options.headers
+        }
+      });
+    }
+
+    return response;
+  }
+
+  // First check if lead already exists
+  try {
+    const checkResponse = await makeRequest(
+      `${backendUrl}/api/reply-bot/check-lead?commenterUrl=${encodeURIComponent(commenterUrl)}`,
+      { method: 'GET' }
+    );
+
+    if (checkResponse.ok) {
+      const checkData = await checkResponse.json();
+      if (checkData.exists) {
+        console.log('[LinkedIn Reply Bot] Lead already exists:', checkData.lead.name);
+        return { alreadyExists: true, lead: checkData.lead };
+      }
+    }
+  } catch (e) {
+    console.warn('[LinkedIn Reply Bot] Check failed, proceeding to add:', e);
+  }
+
+  // Lead doesn't exist, add it
+  const response = await makeRequest(`${backendUrl}/api/reply-bot/add-lead`, {
+    method: 'POST',
+    body: JSON.stringify({
+      commenterUrl,
+      commenterName,
+      commenterHeadline,
+      postUrl,
+      matchedKeyword: 'manual',
+      replyText
+    })
+  });
+
+  if (response.ok) {
+    const data = await response.json();
+    console.log('[LinkedIn Reply Bot] Added to flow:', data);
+    return { alreadyExists: false, leadId: data.leadId };
+  } else {
+    const data = await response.json();
+    throw new Error(data.detail || 'Failed to add to flow');
+  }
 }

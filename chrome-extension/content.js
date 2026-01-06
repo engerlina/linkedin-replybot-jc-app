@@ -128,9 +128,20 @@
     dropdown.className = 'reply-bot-dropdown';
     dropdown.style.display = 'none';
 
+    // Add to Flow button (always visible)
+    const flowBtn = document.createElement('button');
+    flowBtn.className = 'reply-bot-flow-btn-inline';
+    flowBtn.innerHTML = `
+      <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
+        <path d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 14H4V8l8 5 8-5v10zm-8-7L4 6h16l-8 5z"/>
+      </svg>
+      <span>+ Flow</span>
+    `;
+
     container.appendChild(button);
     container.appendChild(dropdownBtn);
     container.appendChild(dropdown);
+    container.appendChild(flowBtn);
     socialBar.appendChild(container);
 
     // Main button click - generate AI reply
@@ -160,12 +171,73 @@
       }
     });
 
+    // Flow button click - add to DM flow directly
+    flowBtn.addEventListener('click', async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      await handleAddToFlowDirect(comment, flowBtn);
+    });
+
     // Close dropdown when clicking outside
     document.addEventListener('click', (e) => {
       if (!container.contains(e.target)) {
         dropdown.style.display = 'none';
       }
     });
+  }
+
+  // Handle adding to flow directly (checks if already a lead)
+  async function handleAddToFlowDirect(comment, flowBtn) {
+    if (flowBtn.classList.contains('loading')) return;
+
+    flowBtn.classList.add('loading');
+    const originalText = flowBtn.querySelector('span').textContent;
+    flowBtn.querySelector('span').textContent = 'Checking...';
+
+    try {
+      const post = findParentPost(comment);
+      const commenterUrl = extractCommenterUrl(comment);
+      const commenterName = extractCommenterName(comment);
+      const commenterHeadline = extractCommenterHeadline(comment);
+      const postUrl = extractPostUrl(post);
+
+      if (!commenterUrl) {
+        throw new Error('Could not extract LinkedIn profile URL');
+      }
+
+      console.log('[LinkedIn Reply Bot] Adding to flow:', { commenterName, commenterUrl });
+
+      const response = await chrome.runtime.sendMessage({
+        action: 'addToFlowWithCheck',
+        commenterUrl,
+        commenterName,
+        commenterHeadline,
+        postUrl,
+        replyText: null
+      });
+
+      if (!response.success) {
+        throw new Error(response.error);
+      }
+
+      if (response.alreadyExists) {
+        flowBtn.querySelector('span').textContent = 'Already in flow!';
+        flowBtn.classList.add('exists');
+      } else {
+        flowBtn.querySelector('span').textContent = 'Added!';
+        flowBtn.classList.add('success');
+      }
+
+    } catch (error) {
+      console.error('[LinkedIn Reply Bot] Add to flow error:', error);
+      flowBtn.querySelector('span').textContent = 'Error!';
+      alert('Error: ' + error.message);
+    } finally {
+      setTimeout(() => {
+        flowBtn.classList.remove('loading', 'success', 'exists');
+        flowBtn.querySelector('span').textContent = originalText;
+      }, 3000);
+    }
   }
 
   // Populate dropdown with canned responses
@@ -428,12 +500,38 @@
 
   // Extract commenter URL
   function extractCommenterUrl(comment) {
-    const link = comment.querySelector(
-      'a.comments-post-meta__profile-link, ' +
-      'a[data-control-name="comment_commenter_name"], ' +
-      '.comments-comment-meta a[href*="/in/"]'
-    );
-    return link ? link.href : '';
+    // Try multiple selectors - LinkedIn's DOM changes frequently
+    const selectors = [
+      'a.comments-post-meta__profile-link',
+      'a[data-control-name="comment_commenter_name"]',
+      '.comments-comment-meta a[href*="/in/"]',
+      '.comments-comment-item__post-meta a[href*="/in/"]',
+      '.comments-comment-entity-meta a[href*="/in/"]',
+      'a.comment-actor__link[href*="/in/"]',
+      // New LinkedIn UI selectors
+      'a[data-test-app-aware-link][href*="/in/"]',
+      '.update-components-actor__container a[href*="/in/"]',
+      // Generic fallbacks
+      'a[href*="linkedin.com/in/"]'
+    ];
+
+    for (const selector of selectors) {
+      const link = comment.querySelector(selector);
+      if (link && link.href && link.href.includes('/in/')) {
+        return link.href.split('?')[0];  // Remove query params
+      }
+    }
+
+    // Last resort: search all links for profile URLs
+    const allLinks = comment.querySelectorAll('a[href*="/in/"]');
+    for (const link of allLinks) {
+      if (link.href && link.href.includes('linkedin.com/in/')) {
+        return link.href.split('?')[0];
+      }
+    }
+
+    console.warn('[LinkedIn Reply Bot] Could not find commenter URL in:', comment);
+    return '';
   }
 
   // Extract commenter headline

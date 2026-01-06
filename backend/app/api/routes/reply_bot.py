@@ -312,6 +312,18 @@ async def add_lead_from_extension(req: AddLeadRequest, _=Depends(get_current_use
     """
     from datetime import datetime
 
+    # Validate commenter URL - must contain a LinkedIn profile
+    if not req.commenterUrl or not req.commenterUrl.strip():
+        raise HTTPException(
+            status_code=400,
+            detail="Commenter URL is required. Could not extract LinkedIn profile URL from comment."
+        )
+    if "/in/" not in req.commenterUrl:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid LinkedIn profile URL: {req.commenterUrl}"
+        )
+
     # Find the monitored post by URL
     post = await prisma.monitoredpost.find_first(
         where={"postUrl": req.postUrl},
@@ -402,3 +414,35 @@ async def add_lead_from_extension(req: AddLeadRequest, _=Depends(get_current_use
         "leadId": lead.id,
         "name": lead.name
     }
+
+
+@router.get("/check-lead")
+async def check_if_lead_exists(commenterUrl: str, _=Depends(get_current_user)):
+    """
+    Check if a lead already exists by their LinkedIn URL.
+    Used by the Chrome extension to show "Already in flow" message.
+    """
+    if not commenterUrl or not commenterUrl.strip():
+        return {"exists": False}
+
+    # Normalize URL
+    commenter_url = commenterUrl.strip()
+
+    # Try to find the lead by LinkedIn URL
+    lead = await prisma.lead.find_first(
+        where={"linkedInUrl": commenter_url},
+        include={"account": True}
+    )
+
+    if lead:
+        return {
+            "exists": True,
+            "lead": {
+                "id": lead.id,
+                "name": lead.name,
+                "connectionStatus": lead.connectionStatus,
+                "dmStatus": lead.dmStatus
+            }
+        }
+    else:
+        return {"exists": False}

@@ -274,14 +274,20 @@ export default function LeadsPage() {
               leads.map((lead) => (
                 <tr key={lead.id} className="border-t border-gray-700 text-sm">
                   <td className="px-4 py-3">
-                    <a
-                      href={lead.linkedInUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-blue-400 hover:underline"
-                    >
-                      {lead.name}
-                    </a>
+                    {lead.linkedInUrl ? (
+                      <a
+                        href={lead.linkedInUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-blue-400 hover:underline"
+                      >
+                        {lead.name}
+                      </a>
+                    ) : (
+                      <span className="text-gray-400" title="Missing LinkedIn URL">
+                        {lead.name} <span className="text-yellow-500 text-xs">(No URL)</span>
+                      </span>
+                    )}
                   </td>
                   <td className="px-4 py-3 text-gray-300">
                     {lead.headline || '-'}
@@ -307,9 +313,9 @@ export default function LeadsPage() {
                       {/* Check connection status */}
                       <button
                         onClick={() => handleCheckConnection(lead.id)}
-                        disabled={!!actionLoading[lead.id]}
-                        title="Check connection status"
-                        className="p-1.5 rounded bg-gray-700 hover:bg-gray-600 text-gray-300 hover:text-white disabled:opacity-50 transition-colors"
+                        disabled={!!actionLoading[lead.id] || !lead.linkedInUrl}
+                        title={lead.linkedInUrl ? "Check connection status" : "No LinkedIn URL - cannot check connection"}
+                        className="p-1.5 rounded bg-gray-700 hover:bg-gray-600 text-gray-300 hover:text-white disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                       >
                         {actionLoading[lead.id] === 'check' ? (
                           <LoadingSpinner />
@@ -322,9 +328,9 @@ export default function LeadsPage() {
                       {lead.connectionStatus !== 'connected' && (
                         <button
                           onClick={() => handleSendConnection(lead.id)}
-                          disabled={!!actionLoading[lead.id]}
-                          title="Send connection request"
-                          className="p-1.5 rounded bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-50 transition-colors"
+                          disabled={!!actionLoading[lead.id] || !lead.linkedInUrl}
+                          title={lead.linkedInUrl ? "Send connection request" : "No LinkedIn URL - cannot send connection"}
+                          className="p-1.5 rounded bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                         >
                           {actionLoading[lead.id] === 'connect' ? (
                             <LoadingSpinner />
@@ -338,9 +344,9 @@ export default function LeadsPage() {
                       {lead.connectionStatus === 'connected' && lead.dmStatus !== 'sent' && (
                         <button
                           onClick={() => handleSendDM(lead.id)}
-                          disabled={!!actionLoading[lead.id]}
-                          title="Send DM"
-                          className="p-1.5 rounded bg-green-600 hover:bg-green-500 text-white disabled:opacity-50 transition-colors"
+                          disabled={!!actionLoading[lead.id] || !lead.linkedInUrl}
+                          title={lead.linkedInUrl ? "Send DM" : "No LinkedIn URL - cannot send DM"}
+                          className="p-1.5 rounded bg-green-600 hover:bg-green-500 text-white disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                         >
                           {actionLoading[lead.id] === 'dm' ? (
                             <LoadingSpinner />
