@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Generate Icons</title>
+</head>
+<body>
+  <h1>LinkedIn Reply Bot Icons</h1>
+  <p>Right-click each canvas and "Save image as" to save the icons</p>
+
+  <h3>icon16.png</h3>
+  <canvas id="icon16" width="16" height="16"></canvas>
+
+  <h3>icon48.png</h3>
+  <canvas id="icon48" width="48" height="48"></canvas>
+
+  <h3>icon128.png</h3>
+  <canvas id="icon128" width="128" height="128"></canvas>
+
+  <script>
+    function drawIcon(canvas) {
+      const ctx = canvas.getContext('2d');
+      const size = canvas.width;
+
+      // Background gradient
+      const gradient = ctx.createLinearGradient(0, 0, size, size);
+      gradient.addColorStop(0, '#0077b5');
+      gradient.addColorStop(1, '#00a0dc');
+
+      // Draw rounded rectangle
+      const radius = size * 0.2;
+      ctx.beginPath();
+      ctx.moveTo(radius, 0);
+      ctx.lineTo(size - radius, 0);
+      ctx.quadraticCurveTo(size, 0, size, radius);
+      ctx.lineTo(size, size - radius);
+      ctx.quadraticCurveTo(size, size, size - radius, size);
+      ctx.lineTo(radius, size);
+      ctx.quadraticCurveTo(0, size, 0, size - radius);
+      ctx.lineTo(0, radius);
+      ctx.quadraticCurveTo(0, 0, radius, 0);
+      ctx.fillStyle = gradient;
+      ctx.fill();
+
+      // Draw "AI" text
+      ctx.fillStyle = 'white';
+      ctx.font = `bold ${size * 0.4}px Arial`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('AI', size / 2, size / 2);
+    }
+
+    drawIcon(document.getElementById('icon16'));
+    drawIcon(document.getElementById('icon48'));
+    drawIcon(document.getElementById('icon128'));
+  </script>
+</body>
+</html>

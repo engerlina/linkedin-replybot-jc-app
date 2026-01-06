@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>LinkedIn Reply Bot</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      width: 380px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #f3f6f8;
+      color: #333;
+    }
+
+    .header {
+      background: linear-gradient(135deg, #0077b5 0%, #00a0dc 100%);
+      color: white;
+      padding: 16px;
+      text-align: center;
+    }
+
+    .header h1 {
+      font-size: 18px;
+      font-weight: 600;
+      margin-bottom: 4px;
+    }
+
+    .header p {
+      font-size: 12px;
+      opacity: 0.9;
+    }
+
+    .tabs {
+      display: flex;
+      background: white;
+      border-bottom: 1px solid #e0e0e0;
+    }
+
+    .tab {
+      flex: 1;
+      padding: 12px;
+      text-align: center;
+      font-size: 13px;
+      font-weight: 500;
+      color: #666;
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      transition: all 0.2s;
+    }
+
+    .tab:hover {
+      color: #0077b5;
+    }
+
+    .tab.active {
+      color: #0077b5;
+      border-bottom-color: #0077b5;
+    }
+
+    .content {
+      padding: 16px;
+      background: white;
+      min-height: 300px;
+    }
+
+    .tab-content {
+      display: none;
+    }
+
+    .tab-content.active {
+      display: block;
+    }
+
+    .form-group {
+      margin-bottom: 16px;
+    }
+
+    label {
+      display: block;
+      font-size: 12px;
+      font-weight: 600;
+      color: #666;
+      margin-bottom: 6px;
+    }
+
+    input[type="text"],
+    input[type="password"],
+    select,
+    textarea {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      font-size: 13px;
+      transition: border-color 0.2s;
+    }
+
+    input:focus,
+    select:focus,
+    textarea:focus {
+      outline: none;
+      border-color: #0077b5;
+    }
+
+    textarea {
+      resize: vertical;
+      min-height: 80px;
+    }
+
+    .btn {
+      width: 100%;
+      padding: 12px;
+      background: linear-gradient(135deg, #0077b5 0%, #00a0dc 100%);
+      color: white;
+      border: none;
+      border-radius: 6px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .btn:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(0, 119, 181, 0.3);
+    }
+
+    .btn.success {
+      background: linear-gradient(135deg, #057642 0%, #0a9e57 100%);
+    }
+
+    .status {
+      margin-top: 12px;
+      padding: 10px;
+      border-radius: 6px;
+      font-size: 12px;
+      text-align: center;
+    }
+
+    .status.success {
+      background: #e8f5e9;
+      color: #2e7d32;
+    }
+
+    .status.error {
+      background: #ffebee;
+      color: #c62828;
+    }
+
+    .help-text {
+      font-size: 11px;
+      color: #888;
+      margin-top: 4px;
+    }
+
+    /* Canned responses */
+    .canned-list {
+      margin-bottom: 12px;
+    }
+
+    .canned-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px;
+      background: #f5f5f5;
+      border-radius: 6px;
+      margin-bottom: 8px;
+    }
+
+    .canned-item input {
+      flex: 1;
+    }
+
+    .canned-item .remove-btn {
+      padding: 4px 8px;
+      background: #ff5252;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 11px;
+    }
+
+    .add-canned-btn {
+      padding: 8px 12px;
+      background: #e3f2fd;
+      color: #1976d2;
+      border: 1px dashed #1976d2;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 12px;
+      width: 100%;
+      margin-bottom: 16px;
+    }
+
+    .add-canned-btn:hover {
+      background: #bbdefb;
+    }
+
+    .section-title {
+      font-size: 14px;
+      font-weight: 600;
+      color: #333;
+      margin-bottom: 12px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid #eee;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>LinkedIn Reply Bot</h1>
+    <p>AI-powered replies + DM automation</p>
+  </div>
+
+  <div class="tabs">
+    <div class="tab active" data-tab="ai">AI Settings</div>
+    <div class="tab" data-tab="backend">Backend</div>
+    <div class="tab" data-tab="responses">Canned</div>
+  </div>
+
+  <div class="content">
+    <!-- AI Settings Tab -->
+    <div id="ai-tab" class="tab-content active">
+      <div class="form-group">
+        <label>AI Provider</label>
+        <select id="provider">
+          <option value="claude">Claude (Anthropic)</option>
+          <option value="openai">OpenAI</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label>API Key</label>
+        <input type="password" id="apiKey" placeholder="sk-...">
+      </div>
+
+      <div class="form-group">
+        <label>Model</label>
+        <select id="model">
+          <option value="claude-3-5-haiku-20241022">Claude 3.5 Haiku (Fast)</option>
+          <option value="claude-sonnet-4-20250514">Claude Sonnet 4</option>
+          <option value="gpt-4o-mini">GPT-4o Mini (Fast)</option>
+          <option value="gpt-4o">GPT-4o</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label>About You (Context for AI)</label>
+        <textarea id="userContext" placeholder="I'm a startup founder helping entrepreneurs build AI tools..."></textarea>
+        <p class="help-text">This helps the AI write replies in your voice</p>
+      </div>
+
+      <div class="form-group">
+        <label>Reply Instructions (Optional)</label>
+        <textarea id="replyPrompt" placeholder="Custom instructions for how AI should write replies..."></textarea>
+      </div>
+
+      <button class="btn" id="saveAi">Save AI Settings</button>
+      <div id="aiStatus" class="status" style="display: none;"></div>
+    </div>
+
+    <!-- Backend Tab -->
+    <div id="backend-tab" class="tab-content">
+      <div class="form-group">
+        <label>Backend URL</label>
+        <input type="text" id="backendUrl" placeholder="https://your-app.up.railway.app">
+        <p class="help-text">Your deployed backend API URL</p>
+      </div>
+
+      <div class="form-group">
+        <label>Admin Password</label>
+        <input type="password" id="backendPassword" placeholder="Your admin password">
+      </div>
+
+      <button class="btn" id="testBackend">Test Connection</button>
+      <div id="backendStatus" class="status" style="display: none;"></div>
+
+      <div style="margin-top: 16px;">
+        <button class="btn success" id="saveBackend">Save Backend Settings</button>
+      </div>
+    </div>
+
+    <!-- Canned Responses Tab -->
+    <div id="responses-tab" class="tab-content">
+      <p class="section-title">Canned Responses</p>
+      <p class="help-text" style="margin-bottom: 12px;">Quick responses that AI will personalize for each comment</p>
+
+      <div id="cannedList" class="canned-list"></div>
+
+      <button class="add-canned-btn" id="addCanned">+ Add Response</button>
+
+      <button class="btn" id="saveCanned">Save Canned Responses</button>
+      <div id="cannedStatus" class="status" style="display: none;"></div>
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

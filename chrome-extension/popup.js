@@ -1,0 +1,240 @@
+// LinkedIn Reply Bot - Popup Script
+
+document.addEventListener('DOMContentLoaded', () => {
+  // Tab switching
+  document.querySelectorAll('.tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      // Update tabs
+      document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+
+      // Update content
+      const tabName = tab.dataset.tab;
+      document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+      document.getElementById(`${tabName}-tab`).classList.add('active');
+    });
+  });
+
+  // Load saved settings
+  loadSettings();
+
+  // AI Settings
+  document.getElementById('saveAi').addEventListener('click', saveAiSettings);
+
+  // Backend Settings
+  document.getElementById('testBackend').addEventListener('click', testBackend);
+  document.getElementById('saveBackend').addEventListener('click', saveBackendSettings);
+
+  // Canned Responses
+  document.getElementById('addCanned').addEventListener('click', addCannedResponse);
+  document.getElementById('saveCanned').addEventListener('click', saveCannedResponses);
+
+  // Update model options based on provider
+  document.getElementById('provider').addEventListener('change', updateModelOptions);
+});
+
+async function loadSettings() {
+  const settings = await chrome.storage.sync.get([
+    'provider', 'apiKey', 'model', 'userContext', 'replyPrompt',
+    'backendUrl', 'backendPassword',
+    'cannedResponses'
+  ]);
+
+  // AI Settings
+  if (settings.provider) document.getElementById('provider').value = settings.provider;
+  if (settings.apiKey) document.getElementById('apiKey').value = settings.apiKey;
+  if (settings.model) document.getElementById('model').value = settings.model;
+  if (settings.userContext) document.getElementById('userContext').value = settings.userContext;
+  if (settings.replyPrompt) document.getElementById('replyPrompt').value = settings.replyPrompt;
+
+  // Backend Settings
+  if (settings.backendUrl) document.getElementById('backendUrl').value = settings.backendUrl;
+  if (settings.backendPassword) document.getElementById('backendPassword').value = settings.backendPassword;
+
+  // Canned Responses
+  const cannedResponses = settings.cannedResponses || [
+    "Thanks for the comment! I'll DM you with more details.",
+    "Great question! Let me send you some resources via DM.",
+    "Appreciate you reaching out! Check your DMs."
+  ];
+  renderCannedResponses(cannedResponses);
+
+  // Update model options
+  updateModelOptions();
+}
+
+function updateModelOptions() {
+  const provider = document.getElementById('provider').value;
+  const modelSelect = document.getElementById('model');
+  const currentModel = modelSelect.value;
+
+  modelSelect.innerHTML = '';
+
+  if (provider === 'claude') {
+    const options = [
+      { value: 'claude-3-5-haiku-20241022', label: 'Claude 3.5 Haiku (Fast)' },
+      { value: 'claude-sonnet-4-20250514', label: 'Claude Sonnet 4' }
+    ];
+    options.forEach(opt => {
+      const option = document.createElement('option');
+      option.value = opt.value;
+      option.textContent = opt.label;
+      modelSelect.appendChild(option);
+    });
+  } else if (provider === 'openai') {
+    const options = [
+      { value: 'gpt-4o-mini', label: 'GPT-4o Mini (Fast)' },
+      { value: 'gpt-4o', label: 'GPT-4o' }
+    ];
+    options.forEach(opt => {
+      const option = document.createElement('option');
+      option.value = opt.value;
+      option.textContent = opt.label;
+      modelSelect.appendChild(option);
+    });
+  }
+
+  // Try to restore previous selection
+  if (currentModel) {
+    const options = modelSelect.querySelectorAll('option');
+    for (const opt of options) {
+      if (opt.value === currentModel) {
+        modelSelect.value = currentModel;
+        break;
+      }
+    }
+  }
+}
+
+async function saveAiSettings() {
+  const provider = document.getElementById('provider').value;
+  const apiKey = document.getElementById('apiKey').value;
+  const model = document.getElementById('model').value;
+  const userContext = document.getElementById('userContext').value;
+  const replyPrompt = document.getElementById('replyPrompt').value;
+
+  await chrome.storage.sync.set({
+    provider,
+    apiKey,
+    model,
+    userContext,
+    replyPrompt
+  });
+
+  showStatus('aiStatus', 'Settings saved!', 'success');
+}
+
+async function testBackend() {
+  const backendUrl = document.getElementById('backendUrl').value.replace(/\/$/, '');
+  const backendPassword = document.getElementById('backendPassword').value;
+
+  if (!backendUrl || !backendPassword) {
+    showStatus('backendStatus', 'Please enter URL and password', 'error');
+    return;
+  }
+
+  try {
+    // Try to login
+    const response = await fetch(`${backendUrl}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: backendPassword })
+    });
+
+    if (response.ok) {
+      const data = await response.json();
+      await chrome.storage.sync.set({ backendToken: data.token });
+      showStatus('backendStatus', 'Connected successfully!', 'success');
+    } else {
+      showStatus('backendStatus', 'Invalid password', 'error');
+    }
+  } catch (error) {
+    showStatus('backendStatus', 'Connection failed: ' + error.message, 'error');
+  }
+}
+
+async function saveBackendSettings() {
+  const backendUrl = document.getElementById('backendUrl').value.replace(/\/$/, '');
+  const backendPassword = document.getElementById('backendPassword').value;
+
+  await chrome.storage.sync.set({
+    backendUrl,
+    backendPassword,
+    backendToken: null // Clear token to force re-login
+  });
+
+  showStatus('backendStatus', 'Backend settings saved!', 'success');
+}
+
+function renderCannedResponses(responses) {
+  const container = document.getElementById('cannedList');
+  container.innerHTML = '';
+
+  responses.forEach((response, index) => {
+    const item = document.createElement('div');
+    item.className = 'canned-item';
+    item.innerHTML = `
+      <input type="text" value="${escapeHtml(response)}" data-index="${index}">
+      <button class="remove-btn" data-index="${index}">X</button>
+    `;
+    container.appendChild(item);
+  });
+
+  // Add remove handlers
+  container.querySelectorAll('.remove-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const index = parseInt(btn.dataset.index);
+      const items = Array.from(container.querySelectorAll('.canned-item'));
+      items[index].remove();
+    });
+  });
+}
+
+function addCannedResponse() {
+  const container = document.getElementById('cannedList');
+  const index = container.children.length;
+
+  const item = document.createElement('div');
+  item.className = 'canned-item';
+  item.innerHTML = `
+    <input type="text" value="" data-index="${index}" placeholder="New canned response...">
+    <button class="remove-btn" data-index="${index}">X</button>
+  `;
+  container.appendChild(item);
+
+  // Focus the new input
+  item.querySelector('input').focus();
+
+  // Add remove handler
+  item.querySelector('.remove-btn').addEventListener('click', () => {
+    item.remove();
+  });
+}
+
+async function saveCannedResponses() {
+  const inputs = document.querySelectorAll('#cannedList input');
+  const responses = Array.from(inputs)
+    .map(input => input.value.trim())
+    .filter(v => v.length > 0);
+
+  await chrome.storage.sync.set({ cannedResponses: responses });
+
+  showStatus('cannedStatus', 'Canned responses saved!', 'success');
+}
+
+function showStatus(elementId, message, type) {
+  const el = document.getElementById(elementId);
+  el.textContent = message;
+  el.className = `status ${type}`;
+  el.style.display = 'block';
+
+  setTimeout(() => {
+    el.style.display = 'none';
+  }, 3000);
+}
+
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}

@@ -277,9 +277,31 @@ model Lead {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  pendingDms PendingDm[]
+
   @@unique([accountId, linkedInUrl])
   @@index([connectionStatus])
   @@index([dmStatus])
+}
+
+model PendingDm {
+  id     String @id @default(cuid())
+  leadId String
+  lead   Lead   @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  // Message content
+  message    String
+  editedText String?
+
+  // Status
+  status     String    @default("pending") // pending, approved, sent, failed
+  reviewedAt DateTime?
+  sentAt     DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([status])
+  @@index([leadId, status])
 }
 
 // ============================================
@@ -373,6 +395,9 @@ model Settings {
   // Feature Flags
   replyBotEnabled   Boolean @default(true)
   commentBotEnabled Boolean @default(true)
+
+  // DM Templates
+  defaultDmTemplate String? // Default DM message for new leads
 
   updatedAt DateTime @updatedAt
 }

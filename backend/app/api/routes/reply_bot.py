@@ -290,3 +290,116 @@ async def delete_pending_reply(reply_id: str, _=Depends(get_current_user)):
     """Delete a pending reply"""
     await prisma.pendingreply.delete(where={"id": reply_id})
     return {"success": True}
+
+
+# ============================================
+# CHROME EXTENSION ENDPOINT
+# ============================================
+
+class AddLeadRequest(BaseModel):
+    commenterUrl: str
+    commenterName: str
+    commenterHeadline: Optional[str] = None
+    postUrl: str
+    matchedKeyword: Optional[str] = "manual"
+    replyText: Optional[str] = None
+
+
+@router.post("/add-lead")
+async def add_lead_from_extension(req: AddLeadRequest, _=Depends(get_current_user)):
+    """
+    Add a lead from the Chrome extension after replying to a comment.
+    This creates a lead and queues them for the DM flow.
+    """
+    from datetime import datetime
+
+    # Find the monitored post by URL
+    post = await prisma.monitoredpost.find_first(
+        where={"postUrl": req.postUrl},
+        include={"account": True}
+    )
+
+    # If post not found, try to find any active account to use
+    if not post:
+        # Get the first active account
+        account = await prisma.linkedinaccount.find_first(where={"isActive": True})
+        if not account:
+            raise HTTPException(status_code=400, detail="No active LinkedIn account found")
+        account_id = account.id
+        post_id = None
+    else:
+        account_id = post.accountId
+        post_id = post.id
+
+    # Check if lead already exists
+    existing_lead = await prisma.lead.find_first(
+        where={
+            "accountId": account_id,
+            "linkedInUrl": req.commenterUrl
+        }
+    )
+
+    if existing_lead:
+        # Update existing lead
+        lead = await prisma.lead.update(
+            where={"id": existing_lead.id},
+            data={
+                "sourceKeyword": req.matchedKeyword,
+                "sourcePostUrl": req.postUrl,
+                "updatedAt": datetime.utcnow()
+            }
+        )
+        message = "Lead updated"
+    else:
+        # Create new lead
+        lead_data = {
+            "account": {"connect": {"id": account_id}},
+            "linkedInUrl": req.commenterUrl,
+            "name": req.commenterName,
+            "headline": req.commenterHeadline,
+            "sourceKeyword": req.matchedKeyword,
+            "sourcePostUrl": req.postUrl,
+            "connectionStatus": "unknown"  # Will be checked by the backend
+        }
+
+        if post_id:
+            lead_data["post"] = {"connect": {"id": post_id}}
+
+        lead = await prisma.lead.create(data=lead_data)
+        message = "Lead created"
+
+    # Create a pending DM for this lead
+    dm_template = None
+    if post and post.ctaMessage:
+        dm_template = post.ctaMessage
+    else:
+        # Get default DM template from settings
+        db_settings = await prisma.settings.find_first(where={"id": "global"})
+        if db_settings and db_settings.defaultDmTemplate:
+            dm_template = db_settings.defaultDmTemplate
+
+    if dm_template:
+        # Check if pending DM already exists
+        existing_dm = await prisma.pendingdm.find_first(
+            where={
+                "leadId": lead.id,
+                "status": "pending"
+            }
+        )
+
+        if not existing_dm:
+            await prisma.pendingdm.create(
+                data={
+                    "lead": {"connect": {"id": lead.id}},
+                    "message": dm_template,
+                    "status": "pending"
+                }
+            )
+            message += " and queued for DM"
+
+    return {
+        "success": True,
+        "message": message,
+        "leadId": lead.id,
+        "name": lead.name
+    }
