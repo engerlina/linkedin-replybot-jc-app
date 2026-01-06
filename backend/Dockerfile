@@ -1,5 +1,8 @@
 FROM python:3.11-slim
 
+# Force Python to run unbuffered for immediate log output
+ENV PYTHONUNBUFFERED=1
+
 WORKDIR /app
 
 # Install system dependencies

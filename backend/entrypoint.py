@@ -4,12 +4,17 @@ import os
 import sys
 import subprocess
 
+# Immediate output to confirm script is running
+print("=" * 50)
+print("ENTRYPOINT.PY STARTING")
+print("=" * 50)
+sys.stdout.flush()
+
 def main():
     port = os.environ.get("PORT", "8000")
 
-    print("=== LinkedIn Automation Backend Startup ===", flush=True)
-    print(f"PORT: {port}", flush=True)
-    print(f"Python: {sys.version}", flush=True)
+    print(f"PORT: {port}")
+    print(f"Python: {sys.version}")
 
     # Check env vars
     for var in ["DATABASE_URL", "ANTHROPIC_API_KEY", "JWT_SECRET", "ADMIN_PASSWORD"]:
