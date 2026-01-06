@@ -29,6 +29,10 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('addCanned').addEventListener('click', addCannedResponse);
   document.getElementById('saveCanned').addEventListener('click', saveCannedResponses);
 
+  // Cookie Sync
+  document.getElementById('syncCookies').addEventListener('click', syncCookiesNow);
+  checkCookieStatus();
+
   // Update model options based on provider
   document.getElementById('provider').addEventListener('change', updateModelOptions);
 });
@@ -286,4 +290,55 @@ function escapeHtml(text) {
   const div = document.createElement('div');
   div.textContent = text;
   return div.innerHTML;
+}
+
+// Cookie Sync Functions
+async function checkCookieStatus() {
+  const statusBox = document.getElementById('cookieStatusBox');
+  const statusText = document.getElementById('cookieStatusText');
+
+  try {
+    // Check if we have LinkedIn cookies in the browser
+    const response = await chrome.runtime.sendMessage({ action: 'getCookieStatus' });
+
+    if (response.hasCookies) {
+      statusBox.style.background = '#e8f5e9';
+      statusText.innerHTML = `<span style="color: #2e7d32;">LinkedIn cookies detected</span><br>` +
+        `<span style="font-size: 11px; color: #666;">Status: ${response.lastSynced}</span>`;
+    } else {
+      statusBox.style.background = '#fff3e0';
+      statusText.innerHTML = `<span style="color: #e65100;">No LinkedIn cookies found</span><br>` +
+        `<span style="font-size: 11px; color: #666;">Please log into LinkedIn first</span>`;
+    }
+  } catch (error) {
+    statusBox.style.background = '#ffebee';
+    statusText.innerHTML = `<span style="color: #c62828;">Error checking status</span><br>` +
+      `<span style="font-size: 11px; color: #666;">${error.message}</span>`;
+  }
+}
+
+async function syncCookiesNow() {
+  const btn = document.getElementById('syncCookies');
+  const originalText = btn.textContent;
+  btn.textContent = 'Syncing...';
+  btn.disabled = true;
+
+  try {
+    // Trigger sync via background script
+    const response = await chrome.runtime.sendMessage({ action: 'syncCookies' });
+
+    if (response.success) {
+      showStatus('syncStatus', 'Cookies synced successfully!', 'success');
+    } else {
+      showStatus('syncStatus', response.error || 'Sync failed', 'error');
+    }
+
+    // Refresh the status display
+    await checkCookieStatus();
+  } catch (error) {
+    showStatus('syncStatus', 'Sync failed: ' + error.message, 'error');
+  } finally {
+    btn.textContent = originalText;
+    btn.disabled = false;
+  }
 }
