@@ -27,13 +27,14 @@ async def process_keyword_match(post, comment, client: LinkedAPIClient):
     if not await can_perform(account_id, "comment"):
         return
 
-    # 1. Generate and post reply
+    # 1. Generate and post reply using custom instructions if available
     reply_text = await generate_reply_comment(
         original_comment=comment.commentText,
         commenter_name=comment.commenterName,
         post_topic=post.postTitle or "this topic",
         cta_hint=post.ctaMessage or post.ctaValue,
-        voice_tone=post.account.voiceTone
+        voice_tone=post.account.voiceTone,
+        custom_instructions=post.replyStyle
     )
 
     await random_delay(60, 180)  # Human-like delay

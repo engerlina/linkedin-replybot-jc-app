@@ -19,14 +19,15 @@ async def log_activity(account_id: str, action: str, status: str, details: dict 
 
 
 async def send_dm_to_lead(lead, post, client: LinkedAPIClient):
-    """Send a sales DM to a connected lead"""
+    """Send a sales DM to a connected lead using custom instructions if available"""
     dm_text = await generate_sales_dm(
         lead_name=lead.name,
         lead_headline=lead.headline or "",
         post_topic=post.postTitle or "my recent post",
         cta_type=post.ctaType,
         cta_value=post.ctaValue,
-        cta_message=post.ctaMessage
+        cta_message=post.ctaMessage,
+        custom_instructions=post.replyStyle
     )
 
     await random_delay(60, 180)

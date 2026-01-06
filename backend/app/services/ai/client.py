@@ -9,19 +9,37 @@ async def generate_reply_comment(
     commenter_name: str,
     post_topic: str,
     cta_hint: str,
-    voice_tone: str = "professional"
+    voice_tone: str = "professional",
+    custom_instructions: str = None
 ) -> str:
     """Generate a reply to a comment that matched a keyword"""
 
-    prompt = f"""You are replying to a LinkedIn comment on your post about {post_topic}.
+    first_name = commenter_name.split()[0] if commenter_name else "there"
+
+    # If custom instructions are provided, use them as the primary guide
+    if custom_instructions:
+        prompt = f"""{custom_instructions}
+
+---
+CURRENT CONTEXT:
+- Commenter name: {commenter_name} (first name: {first_name})
+- Their comment: "{original_comment}"
+- Post topic: {post_topic}
+- Your tone: {voice_tone}
+
+Now generate the public comment reply (under 15 words) following the instructions above.
+Write only the reply text, nothing else."""
+    else:
+        # Default behavior if no custom instructions
+        prompt = f"""You are replying to a LinkedIn comment on your post about {post_topic}.
 
 The commenter ({commenter_name}) wrote: "{original_comment}"
 
 Write a friendly, engaging reply that:
 1. Acknowledges their interest (they triggered a keyword)
-2. Is warm and personal (use their first name)
+2. Is warm and personal (use their first name: {first_name})
 3. Hints at the value you'll provide: {cta_hint}
-4. Is 1-3 sentences max
+4. Is 1-2 sentences max (under 15 words ideal)
 5. Tone: {voice_tone}
 
 Do NOT be salesy or pushy. Be genuine and helpful.
@@ -42,13 +60,33 @@ async def generate_sales_dm(
     post_topic: str,
     cta_type: str,
     cta_value: str,
-    cta_message: str = None
+    cta_message: str = None,
+    custom_instructions: str = None
 ) -> str:
     """Generate a personalized DM for a lead"""
 
-    cta_instruction = cta_message or f"Include this CTA naturally: {cta_value}"
+    first_name = lead_name.split()[0] if lead_name else "there"
 
-    prompt = f"""Write a LinkedIn DM to {lead_name} ({lead_headline}).
+    # If custom instructions are provided, use them as the primary guide
+    if custom_instructions:
+        prompt = f"""{custom_instructions}
+
+---
+CURRENT CONTEXT:
+- Lead name: {lead_name} (first name: {first_name})
+- Lead headline: {lead_headline}
+- Post topic they engaged with: {post_topic}
+- CTA type: {cta_type}
+- CTA value: {cta_value}
+{f"- CTA message hint: {cta_message}" if cta_message else ""}
+
+Now generate the DM following the instructions above.
+Write only the message text, nothing else."""
+    else:
+        # Default behavior if no custom instructions
+        cta_instruction = cta_message or f"Include this CTA naturally: {cta_value}"
+
+        prompt = f"""Write a LinkedIn DM to {lead_name} ({lead_headline}).
 
 Context: They commented on your post about {post_topic} and showed interest.
 
