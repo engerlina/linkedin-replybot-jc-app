@@ -653,9 +653,12 @@ async def debug_connection_request(lead_id: str, _=Depends(get_current_user)):
 async def get_sent_invitations(accountId: Optional[str] = None, _=Depends(get_current_user)):
     """Fetch actual sent invitations from LinkedIn to verify requests were sent"""
     import logging
+    import json
     from app.services.linkedin.client import LinkedInDirectClient, LinkedInAuthError, LinkedInAPIError
 
     logger = logging.getLogger(__name__)
+    debug_log = []
+    raw_responses = {}
 
     # Get account with cookies
     if accountId:
@@ -664,7 +667,6 @@ async def get_sent_invitations(accountId: Optional[str] = None, _=Depends(get_cu
             include={"cookies": True}
         )
     else:
-        # Get first account with valid cookies
         account = await prisma.linkedinaccount.find_first(
             where={"cookies": {"isValid": True}},
             include={"cookies": True}
@@ -678,13 +680,55 @@ async def get_sent_invitations(accountId: Optional[str] = None, _=Depends(get_cu
 
     try:
         client = await LinkedInDirectClient.create(account.id)
+
+        # Try multiple endpoints and capture raw responses for debugging
+        # Endpoint 1: voyagerRelationshipsDashInvitations
+        try:
+            debug_log.append("Trying voyagerRelationshipsDashInvitations...")
+            response = await client._request(
+                "GET",
+                "/voyagerRelationshipsDashInvitations",
+                params={"q": "sent", "start": 0, "count": 20, "invitationType": "CONNECTION"}
+            )
+            raw_responses["dash"] = {"elements": len(response.get("elements", [])), "sample": str(response)[:500]}
+            debug_log.append(f"Dash: {len(response.get('elements', []))} elements")
+        except Exception as e:
+            debug_log.append(f"Dash failed: {e}")
+            raw_responses["dash"] = {"error": str(e)}
+
+        # Endpoint 2: relationships/sentInvitationViewsV2
+        try:
+            debug_log.append("Trying relationships/sentInvitationViewsV2...")
+            response = await client._request(
+                "GET",
+                "/relationships/sentInvitationViewsV2",
+                params={"start": 0, "count": 20, "q": "sent"}
+            )
+            raw_responses["sentInvitationViewsV2"] = {"elements": len(response.get("elements", [])), "sample": str(response)[:500]}
+            debug_log.append(f"sentInvitationViewsV2: {len(response.get('elements', []))} elements")
+        except Exception as e:
+            debug_log.append(f"sentInvitationViewsV2 failed: {e}")
+            raw_responses["sentInvitationViewsV2"] = {"error": str(e)}
+
+        # Endpoint 3: Check my invitations via relationships
+        try:
+            debug_log.append("Trying relationships/invitationViews...")
+            response = await client._request(
+                "GET",
+                "/relationships/invitationViews",
+                params={"start": 0, "count": 20, "q": "invitationType", "invitationType": "SENT"}
+            )
+            raw_responses["invitationViews"] = {"elements": len(response.get("elements", [])), "sample": str(response)[:500]}
+            debug_log.append(f"invitationViews: {len(response.get('elements', []))} elements")
+        except Exception as e:
+            debug_log.append(f"invitationViews failed: {e}")
+            raw_responses["invitationViews"] = {"error": str(e)}
+
         invitations = await client.get_sent_invitations(limit=50)
 
-        # Check which of our leads are in the sent invitations
         leads = await prisma.lead.find_many(
             where={"accountId": account.id, "connectionStatus": "pending"}
         )
-
         lead_urls = {lead.linkedInUrl.rstrip('/').lower() for lead in leads}
 
         matched = []
@@ -697,9 +741,11 @@ async def get_sent_invitations(accountId: Optional[str] = None, _=Depends(get_cu
             "success": True,
             "account": account.name,
             "total_sent_invitations": len(invitations),
-            "invitations": invitations[:20],  # First 20
+            "invitations": invitations[:20],
             "matched_with_pending_leads": len(matched),
-            "matched_leads": matched
+            "matched_leads": matched,
+            "debug_log": debug_log,
+            "raw_responses": raw_responses
         }
 
     except LinkedInAuthError as e:
