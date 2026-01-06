@@ -336,80 +336,256 @@ class LinkedInDirectClient:
         Check connection status with a person.
 
         Returns: "connected", "pending", "notConnected", or "unknown"
+
+        Uses multiple fallback approaches since LinkedIn deprecates endpoints frequently.
         """
         public_id = self._extract_public_id(person_url)
+        logger.info(f"Checking connection status for: {public_id}")
 
+        # Try Method 1: identity/dash/profiles with memberRelationship decoration
         try:
-            # Try the networkinfo endpoint first
+            result = await self._check_connection_via_dash_profile(public_id)
+            if result != "unknown":
+                logger.info(f"Connection status via dash profile: {result}")
+                return result
+        except Exception as e:
+            logger.warning(f"Dash profile connection check failed: {e}")
+
+        # Try Method 2: relationships/memberRelationships endpoint
+        try:
+            result = await self._check_connection_via_relationships(public_id)
+            if result != "unknown":
+                logger.info(f"Connection status via relationships: {result}")
+                return result
+        except Exception as e:
+            logger.warning(f"Relationships endpoint check failed: {e}")
+
+        # Try Method 3: Check if we can message them (only works for connected users)
+        try:
+            result = await self._check_connection_via_messaging(public_id)
+            if result != "unknown":
+                logger.info(f"Connection status via messaging: {result}")
+                return result
+        except Exception as e:
+            logger.warning(f"Messaging check failed: {e}")
+
+        logger.warning(f"Could not determine connection status for {public_id}")
+        return "unknown"
+
+    async def _check_connection_via_dash_profile(self, public_id: str) -> str:
+        """Check connection via identity/dash/profiles with memberRelationship decoration"""
+        try:
+            # Use dash profile endpoint with full decorations including memberRelationship
             response = await self._request(
                 "GET",
-                f"/identity/profiles/{public_id}/networkinfo"
+                "/identity/dash/profiles",
+                params={
+                    "q": "memberIdentity",
+                    "memberIdentity": public_id,
+                    "decorationId": "com.linkedin.voyager.dash.deco.identity.profile.FullProfileWithEntities-93"
+                }
             )
 
-            logger.info(f"NetworkInfo response for {public_id}: {response}")
+            elements = response.get("elements", [])
+            if not elements:
+                logger.debug("No elements in dash profile response")
+                return "unknown"
 
-            # Check various response formats
-            distance = response.get("distance", {})
-            if isinstance(distance, dict):
-                distance_value = distance.get("value", "")
-            else:
-                distance_value = str(distance)
+            profile = elements[0]
+            logger.debug(f"Dash profile keys: {profile.keys()}")
 
-            logger.info(f"Distance value: {distance_value}")
+            # Check memberRelationship field
+            member_relation = profile.get("memberRelationship", {})
+            if member_relation:
+                logger.info(f"memberRelationship: {member_relation}")
+                # Check for connection status
+                if member_relation.get("memberRelationshipType") == "FIRST_DEGREE":
+                    return "connected"
+                elif member_relation.get("memberRelationshipType") == "SELF":
+                    return "connected"  # User's own profile
+                elif member_relation.get("invitationPending"):
+                    return "pending"
 
-            if distance_value == "DISTANCE_1":
-                return "connected"
-            elif distance_value in ("DISTANCE_2", "DISTANCE_3", "OUT_OF_NETWORK"):
-                return "notConnected"
+            # Check networkDistance in profile
+            network_distance = profile.get("networkDistance", {})
+            if network_distance:
+                logger.info(f"networkDistance: {network_distance}")
+                distance = network_distance.get("value") or network_distance.get("distance")
+                if distance in ("DISTANCE_1", "FIRST_DEGREE"):
+                    return "connected"
+                elif distance in ("DISTANCE_2", "DISTANCE_3", "SECOND_DEGREE", "THIRD_DEGREE", "OUT_OF_NETWORK"):
+                    return "notConnected"
 
-            # Also check for followingInfo which indicates connection
-            following_info = response.get("followingInfo", {})
-            if following_info.get("followingType") == "FOLLOWING":
-                # We're following them but might not be connected
-                pass
-
-            # Check for connectionStatus in response
-            conn_status = response.get("connectionStatus")
-            if conn_status == "CONNECTED":
-                return "connected"
-
-            # Try alternate check via profile endpoint
-            try:
-                profile_response = await self._request(
-                    "GET",
-                    f"/identity/profiles/{public_id}"
-                )
-                logger.info(f"Profile response keys: {profile_response.keys()}")
-
-                # Check for network distance in profile
-                network_distance = profile_response.get("networkDistance", {})
-                if isinstance(network_distance, dict):
-                    nd_value = network_distance.get("value", "")
-                    if nd_value == "DISTANCE_1":
+            # Check included entities for relationship info
+            included = response.get("included", [])
+            for item in included:
+                item_type = item.get("$type", "")
+                if "MemberRelationship" in item_type or "NetworkDistance" in item_type:
+                    logger.info(f"Found relationship in included: {item}")
+                    rel_type = item.get("memberRelationshipType") or item.get("distance")
+                    if rel_type in ("FIRST_DEGREE", "DISTANCE_1"):
                         return "connected"
-                    elif nd_value in ("DISTANCE_2", "DISTANCE_3"):
+                    elif rel_type in ("SECOND_DEGREE", "THIRD_DEGREE", "DISTANCE_2", "DISTANCE_3"):
                         return "notConnected"
-            except Exception as e:
-                logger.warning(f"Profile check failed: {e}")
 
             return "unknown"
 
         except LinkedInAPIError as e:
-            logger.warning(f"Failed to check connection: {e}")
+            logger.warning(f"Dash profile check error: {e}")
+            raise
+
+    async def _check_connection_via_relationships(self, public_id: str) -> str:
+        """Check connection via relationships API"""
+        try:
+            # First get the profile URN
+            profile_response = await self._request(
+                "GET",
+                "/identity/dash/profiles",
+                params={
+                    "q": "memberIdentity",
+                    "memberIdentity": public_id,
+                    "decorationId": "com.linkedin.voyager.dash.deco.identity.profile.TopCardSupplementary-85"
+                }
+            )
+
+            elements = profile_response.get("elements", [])
+            if not elements:
+                return "unknown"
+
+            entity_urn = elements[0].get("entityUrn", "")
+            if not entity_urn:
+                return "unknown"
+
+            logger.info(f"Got entity URN: {entity_urn}")
+
+            # Try voyagerRelationshipsDashMemberRelationships
+            try:
+                rel_response = await self._request(
+                    "GET",
+                    "/voyagerRelationshipsDashMemberRelationships",
+                    params={
+                        "q": "member",
+                        "member": entity_urn
+                    }
+                )
+                logger.info(f"Relationships response: {rel_response}")
+
+                elements = rel_response.get("elements", [])
+                if elements:
+                    rel = elements[0]
+                    rel_type = rel.get("memberRelationshipType")
+                    if rel_type == "FIRST_DEGREE":
+                        return "connected"
+                    elif rel_type in ("SECOND_DEGREE", "THIRD_DEGREE", "OUT_OF_NETWORK"):
+                        return "notConnected"
+                    if rel.get("invitationPending"):
+                        return "pending"
+            except LinkedInAPIError as e:
+                logger.debug(f"voyagerRelationshipsDash failed: {e}")
+
+            # Try alternative endpoint format
+            try:
+                alt_response = await self._request(
+                    "GET",
+                    f"/relationships/memberRelationships/{entity_urn}"
+                )
+                logger.info(f"Alt relationships response: {alt_response}")
+
+                rel_type = alt_response.get("memberRelationshipType")
+                if rel_type == "FIRST_DEGREE":
+                    return "connected"
+                elif rel_type:
+                    return "notConnected"
+            except LinkedInAPIError:
+                pass
+
             return "unknown"
+
+        except LinkedInAPIError as e:
+            logger.warning(f"Relationships check error: {e}")
+            raise
+
+    async def _check_connection_via_messaging(self, public_id: str) -> str:
+        """Check if we can message the person (only works for 1st degree connections)"""
+        try:
+            # Get profile to find entityUrn
+            profile_response = await self._request(
+                "GET",
+                "/identity/dash/profiles",
+                params={
+                    "q": "memberIdentity",
+                    "memberIdentity": public_id,
+                    "decorationId": "com.linkedin.voyager.dash.deco.identity.profile.TopCardSupplementary-85"
+                }
+            )
+
+            elements = profile_response.get("elements", [])
+            if not elements:
+                return "unknown"
+
+            # Check for messagingActions in profile
+            profile = elements[0]
+            primary_actions = profile.get("primaryActions", [])
+            for action in primary_actions:
+                action_type = action.get("type") or action.get("actionType")
+                if action_type == "MESSAGE":
+                    # User has message action available = connected
+                    return "connected"
+                elif action_type == "CONNECT":
+                    # User only has connect action = not connected
+                    return "notConnected"
+
+            # Check included entities for actions
+            included = profile_response.get("included", [])
+            for item in included:
+                if item.get("$type", "").endswith("PrimaryAction"):
+                    action_type = item.get("type")
+                    if action_type == "MESSAGE":
+                        return "connected"
+                    elif action_type == "CONNECT":
+                        return "notConnected"
+
+            return "unknown"
+
+        except LinkedInAPIError as e:
+            logger.debug(f"Messaging check error: {e}")
+            raise
+
+    async def _get_member_urn(self, public_id: str) -> str:
+        """Get member URN via dash profiles endpoint (replaces deprecated /identity/profiles)"""
+        try:
+            profile_response = await self._request(
+                "GET",
+                "/identity/dash/profiles",
+                params={
+                    "q": "memberIdentity",
+                    "memberIdentity": public_id,
+                    "decorationId": "com.linkedin.voyager.dash.deco.identity.profile.TopCardSupplementary-85"
+                }
+            )
+
+            elements = profile_response.get("elements", [])
+            if elements:
+                entity_urn = elements[0].get("entityUrn", "")
+                if entity_urn:
+                    logger.info(f"Got member URN: {entity_urn}")
+                    return entity_urn
+
+            # Fallback to constructed URN
+            logger.warning(f"Could not get URN from dash profiles, using constructed URN")
+            return f"urn:li:fsd_profile:{public_id}"
+
+        except LinkedInAPIError as e:
+            logger.warning(f"Failed to get member URN: {e}, using constructed URN")
+            return f"urn:li:fsd_profile:{public_id}"
 
     async def send_connection_request(self, person_url: str, note: Optional[str] = None) -> bool:
         """Send a connection request to a person"""
         public_id = self._extract_public_id(person_url)
 
         try:
-            # First get the member URN
-            profile = await self._request("GET", f"/identity/profiles/{public_id}")
-            member_urn = profile.get("entityUrn", "")
-
-            if not member_urn:
-                # Try alternative format
-                member_urn = f"urn:li:fsd_profile:{public_id}"
+            # Get the member URN via dash profiles
+            member_urn = await self._get_member_urn(public_id)
 
             payload = {
                 "invitee": {
@@ -439,12 +615,12 @@ class LinkedInDirectClient:
         public_id = self._extract_public_id(person_url)
 
         try:
-            # Get profile URN
-            profile = await self._request("GET", f"/identity/profiles/{public_id}")
-            member_urn = profile.get("entityUrn", "")
+            # Get member URN via dash profiles
+            member_urn = await self._get_member_urn(public_id)
 
-            if not member_urn:
-                raise LinkedInAPIError("Could not get member URN for messaging")
+            if not member_urn or member_urn == f"urn:li:fsd_profile:{public_id}":
+                # If we only got the constructed URN, try to validate it works
+                logger.warning(f"Using constructed URN for messaging: {member_urn}")
 
             # Create conversation and send message
             import time
