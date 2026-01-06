@@ -88,18 +88,20 @@ async def process_keyword_match(post, comment, client: LinkedAPIClient):
                 "linkedInUrl": comment.commenterUrl
             }
         },
-        create={
-            "accountId": account_id,
-            "postId": post.id,
-            "linkedInUrl": comment.commenterUrl,
-            "name": comment.commenterName,
-            "headline": comment.commenterHeadline,
-            "sourceKeyword": comment.matchedKeyword,
-            "sourcePostUrl": post.postUrl,
-            "connectionStatus": connection_status
-        },
-        update={
-            "connectionStatus": connection_status
+        data={
+            "create": {
+                "account": {"connect": {"id": account_id}},
+                "post": {"connect": {"id": post.id}},
+                "linkedInUrl": comment.commenterUrl,
+                "name": comment.commenterName,
+                "headline": comment.commenterHeadline,
+                "sourceKeyword": comment.matchedKeyword,
+                "sourcePostUrl": post.postUrl,
+                "connectionStatus": connection_status
+            },
+            "update": {
+                "connectionStatus": connection_status
+            }
         }
     )
 
