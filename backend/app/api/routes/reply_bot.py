@@ -308,9 +308,14 @@ class AddLeadRequest(BaseModel):
 async def add_lead_from_extension(req: AddLeadRequest, _=Depends(get_current_user)):
     """
     Add a lead from the Chrome extension after replying to a comment.
-    This creates a lead and queues them for the DM flow.
+    This creates a lead, checks connection status, and sends DM if connected.
     """
+    import logging
     from datetime import datetime
+    from app.services.linkedin.client import LinkedInDirectClient, LinkedInAuthError
+    from app.services.ai.client import generate_dm_from_settings
+
+    logger = logging.getLogger(__name__)
 
     # Validate commenter URL - must contain a LinkedIn profile
     if not req.commenterUrl or not req.commenterUrl.strip():
@@ -327,20 +332,26 @@ async def add_lead_from_extension(req: AddLeadRequest, _=Depends(get_current_use
     # Find the monitored post by URL
     post = await prisma.monitoredpost.find_first(
         where={"postUrl": req.postUrl},
-        include={"account": True}
+        include={"account": {"include": {"cookies": True}}}
     )
 
     # If post not found, try to find any active account to use
     if not post:
-        # Get the first active account
-        account = await prisma.linkedinaccount.find_first(where={"isActive": True})
+        # Get the first active account with valid cookies
+        account = await prisma.linkedinaccount.find_first(
+            where={"isActive": True},
+            include={"cookies": True}
+        )
         if not account:
             raise HTTPException(status_code=400, detail="No active LinkedIn account found")
         account_id = account.id
         post_id = None
+        has_valid_cookies = account.cookies and account.cookies.isValid
     else:
         account_id = post.accountId
         post_id = post.id
+        account = post.account
+        has_valid_cookies = account.cookies and account.cookies.isValid
 
     # Check if lead already exists
     existing_lead = await prisma.lead.find_first(
@@ -361,6 +372,7 @@ async def add_lead_from_extension(req: AddLeadRequest, _=Depends(get_current_use
             }
         )
         message = "Lead updated"
+        is_new = False
     else:
         # Create new lead
         lead_data = {
@@ -370,7 +382,7 @@ async def add_lead_from_extension(req: AddLeadRequest, _=Depends(get_current_use
             "headline": req.commenterHeadline,
             "sourceKeyword": req.matchedKeyword,
             "sourcePostUrl": req.postUrl,
-            "connectionStatus": "unknown"  # Will be checked by the backend
+            "connectionStatus": "unknown"
         }
 
         if post_id:
@@ -378,41 +390,95 @@ async def add_lead_from_extension(req: AddLeadRequest, _=Depends(get_current_use
 
         lead = await prisma.lead.create(data=lead_data)
         message = "Lead created"
+        is_new = True
 
-    # Create a pending DM for this lead
-    dm_template = None
-    if post and post.ctaMessage:
-        dm_template = post.ctaMessage
-    else:
-        # Get default DM template from settings
-        db_settings = await prisma.settings.find_first(where={"id": "global"})
-        if db_settings and db_settings.defaultDmTemplate:
-            dm_template = db_settings.defaultDmTemplate
+    # Track what actions were taken
+    actions = {"leadCreated": is_new, "connectionChecked": False, "dmSent": False}
 
-    if dm_template:
-        # Check if pending DM already exists
-        existing_dm = await prisma.pendingdm.find_first(
-            where={
-                "leadId": lead.id,
-                "status": "pending"
-            }
-        )
+    # Check connection status and send DM if connected (only if we have valid cookies)
+    if has_valid_cookies:
+        try:
+            client = await LinkedInDirectClient.create(account_id)
 
-        if not existing_dm:
-            await prisma.pendingdm.create(
-                data={
-                    "lead": {"connect": {"id": lead.id}},
-                    "message": dm_template,
-                    "status": "pending"
-                }
+            # Check connection status
+            connection_status = await client.check_connection(req.commenterUrl)
+            actions["connectionChecked"] = True
+
+            # Update lead with connection status
+            update_data = {"connectionStatus": connection_status}
+            if connection_status == "connected":
+                update_data["connectedAt"] = datetime.utcnow()
+
+            lead = await prisma.lead.update(
+                where={"id": lead.id},
+                data=update_data
             )
-            message += " and queued for DM"
+
+            logger.info(f"Connection status for {req.commenterName}: {connection_status}")
+
+            # If connected, generate and send DM immediately
+            if connection_status == "connected" and lead.dmStatus != "sent":
+                # Generate DM using AI
+                db_settings = await prisma.settings.find_first(where={"id": "global"})
+                dm_message = None
+
+                if db_settings and (db_settings.dmAiPrompt or db_settings.dmUserContext):
+                    try:
+                        dm_message = await generate_dm_from_settings(
+                            lead_name=lead.name,
+                            lead_headline=lead.headline,
+                            source_keyword=lead.sourceKeyword,
+                            source_post_title=post.postTitle if post else None,
+                            user_context=db_settings.dmUserContext,
+                            ai_prompt=db_settings.dmAiPrompt
+                        )
+                    except Exception as e:
+                        logger.warning(f"AI DM generation failed: {e}")
+
+                if not dm_message and db_settings and db_settings.defaultDmTemplate:
+                    first_name = lead.name.split()[0] if lead.name else "there"
+                    dm_message = db_settings.defaultDmTemplate.replace("{name}", first_name)
+
+                if dm_message:
+                    # Send the DM
+                    try:
+                        success = await client.send_message(req.commenterUrl, dm_message)
+                        if success:
+                            await prisma.lead.update(
+                                where={"id": lead.id},
+                                data={
+                                    "dmStatus": "sent",
+                                    "dmSentAt": datetime.utcnow(),
+                                    "dmText": dm_message
+                                }
+                            )
+                            actions["dmSent"] = True
+                            message += " and DM sent!"
+                            logger.info(f"DM sent to {lead.name}")
+                    except Exception as e:
+                        logger.error(f"Failed to send DM: {e}")
+                        message += " (DM failed)"
+                else:
+                    message += " (no DM template configured)"
+            elif connection_status != "connected":
+                message += f" (status: {connection_status})"
+
+        except LinkedInAuthError as e:
+            logger.warning(f"LinkedIn auth error checking connection: {e}")
+            message += " (cookies expired)"
+        except Exception as e:
+            logger.warning(f"Error checking connection: {e}")
+    else:
+        message += " (sync cookies to auto-check connection)"
 
     return {
         "success": True,
         "message": message,
         "leadId": lead.id,
-        "name": lead.name
+        "name": lead.name,
+        "connectionStatus": lead.connectionStatus,
+        "dmSent": actions["dmSent"],
+        "actions": actions
     }
 
 

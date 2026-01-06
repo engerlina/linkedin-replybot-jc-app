@@ -223,6 +223,15 @@
       if (response.alreadyExists) {
         flowBtn.querySelector('span').textContent = 'Already in flow!';
         flowBtn.classList.add('exists');
+      } else if (response.dmSent) {
+        flowBtn.querySelector('span').textContent = 'Added + DM sent!';
+        flowBtn.classList.add('success');
+      } else if (response.connectionStatus === 'connected') {
+        flowBtn.querySelector('span').textContent = 'Added (connected)';
+        flowBtn.classList.add('success');
+      } else if (response.connectionStatus === 'notConnected') {
+        flowBtn.querySelector('span').textContent = 'Added (not connected)';
+        flowBtn.classList.add('exists');
       } else {
         flowBtn.querySelector('span').textContent = 'Added!';
         flowBtn.classList.add('success');

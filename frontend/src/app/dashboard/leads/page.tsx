@@ -340,13 +340,23 @@ export default function LeadsPage() {
                         </button>
                       )}
 
-                      {/* Send DM */}
-                      {lead.connectionStatus === 'connected' && lead.dmStatus !== 'sent' && (
+                      {/* Send DM - always show but with different states */}
+                      {lead.dmStatus !== 'sent' && (
                         <button
                           onClick={() => handleSendDM(lead.id)}
-                          disabled={!!actionLoading[lead.id] || !lead.linkedInUrl}
-                          title={lead.linkedInUrl ? "Send DM" : "No LinkedIn URL - cannot send DM"}
-                          className="p-1.5 rounded bg-green-600 hover:bg-green-500 text-white disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                          disabled={!!actionLoading[lead.id] || !lead.linkedInUrl || lead.connectionStatus !== 'connected'}
+                          title={
+                            !lead.linkedInUrl
+                              ? "No LinkedIn URL"
+                              : lead.connectionStatus !== 'connected'
+                              ? `Cannot DM - ${lead.connectionStatus === 'unknown' ? 'Check connection first' : 'Not connected'}`
+                              : "Preview and send DM"
+                          }
+                          className={`p-1.5 rounded text-white disabled:opacity-50 disabled:cursor-not-allowed transition-colors ${
+                            lead.connectionStatus === 'connected'
+                              ? 'bg-green-600 hover:bg-green-500'
+                              : 'bg-gray-600'
+                          }`}
                         >
                           {actionLoading[lead.id] === 'dm' ? (
                             <LoadingSpinner />
@@ -354,6 +364,9 @@ export default function LeadsPage() {
                             <MessageIcon />
                           )}
                         </button>
+                      )}
+                      {lead.dmStatus === 'sent' && (
+                        <span className="text-green-400 text-xs px-2">DM Sent</span>
                       )}
 
                       {/* Mark as sent manually */}

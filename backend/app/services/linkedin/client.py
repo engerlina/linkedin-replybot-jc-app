@@ -340,19 +340,59 @@ class LinkedInDirectClient:
         public_id = self._extract_public_id(person_url)
 
         try:
+            # Try the networkinfo endpoint first
             response = await self._request(
                 "GET",
                 f"/identity/profiles/{public_id}/networkinfo"
             )
 
-            distance = response.get("distance", {}).get("value", "")
+            logger.info(f"NetworkInfo response for {public_id}: {response}")
 
-            if distance == "DISTANCE_1":
-                return "connected"
-            elif distance in ("DISTANCE_2", "DISTANCE_3", "OUT_OF_NETWORK"):
-                return "notConnected"
+            # Check various response formats
+            distance = response.get("distance", {})
+            if isinstance(distance, dict):
+                distance_value = distance.get("value", "")
             else:
-                return "unknown"
+                distance_value = str(distance)
+
+            logger.info(f"Distance value: {distance_value}")
+
+            if distance_value == "DISTANCE_1":
+                return "connected"
+            elif distance_value in ("DISTANCE_2", "DISTANCE_3", "OUT_OF_NETWORK"):
+                return "notConnected"
+
+            # Also check for followingInfo which indicates connection
+            following_info = response.get("followingInfo", {})
+            if following_info.get("followingType") == "FOLLOWING":
+                # We're following them but might not be connected
+                pass
+
+            # Check for connectionStatus in response
+            conn_status = response.get("connectionStatus")
+            if conn_status == "CONNECTED":
+                return "connected"
+
+            # Try alternate check via profile endpoint
+            try:
+                profile_response = await self._request(
+                    "GET",
+                    f"/identity/profiles/{public_id}"
+                )
+                logger.info(f"Profile response keys: {profile_response.keys()}")
+
+                # Check for network distance in profile
+                network_distance = profile_response.get("networkDistance", {})
+                if isinstance(network_distance, dict):
+                    nd_value = network_distance.get("value", "")
+                    if nd_value == "DISTANCE_1":
+                        return "connected"
+                    elif nd_value in ("DISTANCE_2", "DISTANCE_3"):
+                        return "notConnected"
+            except Exception as e:
+                logger.warning(f"Profile check failed: {e}")
+
+            return "unknown"
 
         except LinkedInAPIError as e:
             logger.warning(f"Failed to check connection: {e}")
