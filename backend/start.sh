@@ -8,6 +8,53 @@ echo "JWT_SECRET set: $(if [ -n "$JWT_SECRET" ]; then echo 'yes'; else echo 'NO 
 echo "ADMIN_PASSWORD set: $(if [ -n "$ADMIN_PASSWORD" ]; then echo 'yes'; else echo 'NO - MISSING!'; fi)"
 echo ""
 
+# Test Python imports before starting
+echo "Testing Python imports..."
+python -c "
+import sys
+print(f'Python version: {sys.version}')
+print('Testing imports...')
+try:
+    print('  - fastapi...', end=' ')
+    from fastapi import FastAPI
+    print('OK')
+except Exception as e:
+    print(f'FAILED: {e}')
+    sys.exit(1)
+
+try:
+    print('  - app.config...', end=' ')
+    from app.config import settings
+    print('OK')
+except Exception as e:
+    print(f'FAILED: {e}')
+    sys.exit(1)
+
+try:
+    print('  - app.db.client...', end=' ')
+    from app.db.client import prisma
+    print('OK')
+except Exception as e:
+    print(f'FAILED: {e}')
+    sys.exit(1)
+
+try:
+    print('  - app.main...', end=' ')
+    from app.main import app
+    print('OK')
+except Exception as e:
+    print(f'FAILED: {e}')
+    import traceback
+    traceback.print_exc()
+    sys.exit(1)
+
+print('All imports successful!')
+" || {
+    echo "Python import test failed!"
+    exit 1
+}
+echo ""
+
 # Run migrations (continue even if it fails - might be first deploy or connection issue)
 echo "Running database migrations..."
 prisma migrate deploy 2>&1 || {
