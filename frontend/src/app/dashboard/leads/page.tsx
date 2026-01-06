@@ -10,10 +10,12 @@ export default function LeadsPage() {
 
   const [leads, setLeads] = useState<Lead[]>([]);
   const [loading, setLoading] = useState(true);
+  const [actionLoading, setActionLoading] = useState<Record<string, string>>({});
   const [filter, setFilter] = useState({
     connectionStatus: '',
     dmStatus: '',
   });
+  const [activeQueue, setActiveQueue] = useState<'all' | 'connection' | 'dm'>('all');
 
   useEffect(() => {
     loadData();
@@ -43,6 +45,83 @@ export default function LeadsPage() {
     }
   };
 
+  const handleCheckConnection = async (leadId: string) => {
+    setActionLoading((prev) => ({ ...prev, [leadId]: 'check' }));
+    try {
+      await api.checkLeadConnection(leadId);
+      loadData();
+    } catch (err) {
+      alert('Failed to check connection: ' + (err as Error).message);
+    } finally {
+      setActionLoading((prev) => {
+        const next = { ...prev };
+        delete next[leadId];
+        return next;
+      });
+    }
+  };
+
+  const handleSendConnection = async (leadId: string) => {
+    setActionLoading((prev) => ({ ...prev, [leadId]: 'connect' }));
+    try {
+      const result = await api.sendLeadConnection(leadId);
+      alert(result.message);
+      loadData();
+    } catch (err) {
+      alert('Failed to send connection: ' + (err as Error).message);
+    } finally {
+      setActionLoading((prev) => {
+        const next = { ...prev };
+        delete next[leadId];
+        return next;
+      });
+    }
+  };
+
+  const handleSendDM = async (leadId: string) => {
+    setActionLoading((prev) => ({ ...prev, [leadId]: 'dm' }));
+    try {
+      const result = await api.sendLeadDM(leadId);
+      alert(result.message);
+      loadData();
+    } catch (err) {
+      alert('Failed to send DM: ' + (err as Error).message);
+    } finally {
+      setActionLoading((prev) => {
+        const next = { ...prev };
+        delete next[leadId];
+        return next;
+      });
+    }
+  };
+
+  const handleMarkSent = async (leadId: string) => {
+    setActionLoading((prev) => ({ ...prev, [leadId]: 'mark' }));
+    try {
+      await api.markLeadDMSent(leadId);
+      loadData();
+    } catch (err) {
+      alert('Failed to mark as sent: ' + (err as Error).message);
+    } finally {
+      setActionLoading((prev) => {
+        const next = { ...prev };
+        delete next[leadId];
+        return next;
+      });
+    }
+  };
+
+  const setQueue = (queue: 'all' | 'connection' | 'dm') => {
+    setActiveQueue(queue);
+    if (queue === 'all') {
+      setFilter({ connectionStatus: '', dmStatus: '' });
+    } else if (queue === 'connection') {
+      setFilter({ connectionStatus: 'not_connected', dmStatus: '' });
+    } else if (queue === 'dm') {
+      setFilter({ connectionStatus: 'connected', dmStatus: 'not_sent' });
+    }
+  };
+
   if (loading) {
     return <div className="p-8 text-white">Loading...</div>;
   }
@@ -51,11 +130,48 @@ export default function LeadsPage() {
     <div className="p-8">
       <h1 className="text-2xl font-bold text-white mb-6">Leads</h1>
 
+      {/* Quick Queue Tabs */}
+      <div className="flex gap-2 mb-4">
+        <button
+          onClick={() => setQueue('all')}
+          className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+            activeQueue === 'all'
+              ? 'bg-blue-600 text-white'
+              : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+          }`}
+        >
+          All Leads
+        </button>
+        <button
+          onClick={() => setQueue('connection')}
+          className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+            activeQueue === 'connection'
+              ? 'bg-yellow-600 text-white'
+              : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+          }`}
+        >
+          Connection Queue
+        </button>
+        <button
+          onClick={() => setQueue('dm')}
+          className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+            activeQueue === 'dm'
+              ? 'bg-green-600 text-white'
+              : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+          }`}
+        >
+          DM Queue
+        </button>
+      </div>
+
       {/* Filters */}
       <div className="flex gap-4 mb-6">
         <select
           value={filter.connectionStatus}
-          onChange={(e) => setFilter({ ...filter, connectionStatus: e.target.value })}
+          onChange={(e) => {
+            setActiveQueue('all');
+            setFilter({ ...filter, connectionStatus: e.target.value });
+          }}
           className="px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white"
         >
           <option value="">All Connection Status</option>
@@ -65,7 +181,10 @@ export default function LeadsPage() {
         </select>
         <select
           value={filter.dmStatus}
-          onChange={(e) => setFilter({ ...filter, dmStatus: e.target.value })}
+          onChange={(e) => {
+            setActiveQueue('all');
+            setFilter({ ...filter, dmStatus: e.target.value });
+          }}
           className="px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white"
         >
           <option value="">All DM Status</option>
@@ -129,12 +248,78 @@ export default function LeadsPage() {
                     {formatRelativeTime(lead.createdAt)}
                   </td>
                   <td className="px-4 py-3">
-                    <button
-                      onClick={() => handleDelete(lead.id)}
-                      className="text-red-400 hover:text-red-300 text-sm"
-                    >
-                      Delete
-                    </button>
+                    <div className="flex items-center gap-2">
+                      {/* Check connection status */}
+                      <button
+                        onClick={() => handleCheckConnection(lead.id)}
+                        disabled={!!actionLoading[lead.id]}
+                        title="Check connection status"
+                        className="p-1.5 rounded bg-gray-700 hover:bg-gray-600 text-gray-300 hover:text-white disabled:opacity-50 transition-colors"
+                      >
+                        {actionLoading[lead.id] === 'check' ? (
+                          <LoadingSpinner />
+                        ) : (
+                          <RefreshIcon />
+                        )}
+                      </button>
+
+                      {/* Send connection request */}
+                      {lead.connectionStatus !== 'connected' && (
+                        <button
+                          onClick={() => handleSendConnection(lead.id)}
+                          disabled={!!actionLoading[lead.id]}
+                          title="Send connection request"
+                          className="p-1.5 rounded bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-50 transition-colors"
+                        >
+                          {actionLoading[lead.id] === 'connect' ? (
+                            <LoadingSpinner />
+                          ) : (
+                            <ConnectIcon />
+                          )}
+                        </button>
+                      )}
+
+                      {/* Send DM */}
+                      {lead.connectionStatus === 'connected' && lead.dmStatus !== 'sent' && (
+                        <button
+                          onClick={() => handleSendDM(lead.id)}
+                          disabled={!!actionLoading[lead.id]}
+                          title="Send DM"
+                          className="p-1.5 rounded bg-green-600 hover:bg-green-500 text-white disabled:opacity-50 transition-colors"
+                        >
+                          {actionLoading[lead.id] === 'dm' ? (
+                            <LoadingSpinner />
+                          ) : (
+                            <MessageIcon />
+                          )}
+                        </button>
+                      )}
+
+                      {/* Mark as sent manually */}
+                      {lead.dmStatus !== 'sent' && (
+                        <button
+                          onClick={() => handleMarkSent(lead.id)}
+                          disabled={!!actionLoading[lead.id]}
+                          title="Mark DM as sent"
+                          className="p-1.5 rounded bg-gray-700 hover:bg-gray-600 text-gray-300 hover:text-white disabled:opacity-50 transition-colors"
+                        >
+                          {actionLoading[lead.id] === 'mark' ? (
+                            <LoadingSpinner />
+                          ) : (
+                            <CheckIcon />
+                          )}
+                        </button>
+                      )}
+
+                      {/* Delete */}
+                      <button
+                        onClick={() => handleDelete(lead.id)}
+                        title="Delete lead"
+                        className="p-1.5 rounded bg-red-600/20 hover:bg-red-600 text-red-400 hover:text-white transition-colors"
+                      >
+                        <TrashIcon />
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))
@@ -169,5 +354,55 @@ function StatusBadge({ status, type }: { status: string; type: 'connection' | 'd
     <span className={`${color} px-2 py-1 rounded text-xs text-white capitalize`}>
       {status.replace(/_/g, ' ')}
     </span>
+  );
+}
+
+// Icon Components
+function LoadingSpinner() {
+  return (
+    <svg className="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
+      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+    </svg>
+  );
+}
+
+function RefreshIcon() {
+  return (
+    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+    </svg>
+  );
+}
+
+function ConnectIcon() {
+  return (
+    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
+    </svg>
+  );
+}
+
+function MessageIcon() {
+  return (
+    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+    </svg>
+  );
+}
+
+function CheckIcon() {
+  return (
+    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+    </svg>
+  );
+}
+
+function TrashIcon() {
+  return (
+    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+    </svg>
   );
 }

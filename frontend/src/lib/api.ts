@@ -232,6 +232,31 @@ class ApiClient {
     return this.request(`/api/leads/${id}`, { method: 'DELETE' });
   }
 
+  // Lead Actions
+  async checkLeadConnection(id: string) {
+    return this.request<LeadActionResult>(`/api/leads/${id}/check-connection`, {
+      method: 'POST',
+    });
+  }
+
+  async sendLeadConnection(id: string) {
+    return this.request<LeadActionResult>(`/api/leads/${id}/send-connection`, {
+      method: 'POST',
+    });
+  }
+
+  async sendLeadDM(id: string) {
+    return this.request<LeadActionResult>(`/api/leads/${id}/send-dm`, {
+      method: 'POST',
+    });
+  }
+
+  async markLeadDMSent(id: string) {
+    return this.request<Lead>(`/api/leads/${id}/mark-sent`, {
+      method: 'POST',
+    });
+  }
+
   // Logs
   async getLogs(limit = 50) {
     return this.request<ActivityLog[]>(`/api/logs?limit=${limit}`);
@@ -422,6 +447,13 @@ export interface LeadFilters {
 
 export interface UpdateLeadRequest {
   notes?: string;
+  connectionStatus?: string;
+  dmStatus?: string;
+}
+
+export interface LeadActionResult {
+  success: boolean;
+  message: string;
   connectionStatus?: string;
   dmStatus?: string;
 }
