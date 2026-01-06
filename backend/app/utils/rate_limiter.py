@@ -1,5 +1,10 @@
-from datetime import date
+from datetime import datetime
 from app.db.client import prisma
+
+
+def today_as_datetime():
+    """Get today's date as a datetime (midnight) for Prisma Date fields"""
+    return datetime.combine(datetime.now().date(), datetime.min.time())
 
 # Default limits (can be overridden by settings)
 DEFAULT_LIMITS = {
@@ -19,7 +24,7 @@ async def can_perform(account_id: str, action_type: str) -> bool:
         "message": settings.maxDailyMessages if settings else DEFAULT_LIMITS["message"]
     }
 
-    today = date.today()
+    today = today_as_datetime()
 
     record = await prisma.ratelimit.find_first(
         where={
@@ -37,7 +42,7 @@ async def can_perform(account_id: str, action_type: str) -> bool:
 
 async def record_action(account_id: str, action_type: str):
     """Record an action for rate limiting"""
-    today = date.today()
+    today = today_as_datetime()
 
     await prisma.ratelimit.upsert(
         where={
@@ -61,7 +66,7 @@ async def record_action(account_id: str, action_type: str):
 
 async def get_usage(account_id: str) -> dict:
     """Get current usage for an account"""
-    today = date.today()
+    today = today_as_datetime()
     settings = await prisma.settings.find_first(where={"id": "global"})
 
     records = await prisma.ratelimit.find_many(

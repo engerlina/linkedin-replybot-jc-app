@@ -71,14 +71,20 @@ async def test_linkedapi():
                             headers=headers
                         )
                         status_data = status_response.json()
-                        # Status might be in different places
-                        status = status_data.get("status") or status_data.get("result", {}).get("status", "unknown")
-                        print(f"   Poll {i+1}: Status = {status}, Response = {json.dumps(status_data)[:200]}")
+                        result = status_data.get("result", {})
+                        # Status is in result.workflowStatus
+                        status = result.get("workflowStatus", "unknown")
+                        print(f"   Poll {i+1}: Status = {status}")
 
                         if status == "completed":
                             print("\n   SUCCESS: Workflow completed!")
-                            completion = status_data.get("completion", {})
-                            print(f"   Completion data: {json.dumps(completion, indent=2)[:1000]}")
+                            completion = result.get("completion", {})
+                            # Print raw comment data structure
+                            data = completion.get("data", [])
+                            if data:
+                                print("   First comment raw data:")
+                                for key, val in data[0].items():
+                                    print(f"     {key}: {type(val).__name__} = {repr(val)[:100]}")
                             break
                         elif status == "failed":
                             print(f"   FAILED: {status_data.get('error', 'Unknown error')}")
