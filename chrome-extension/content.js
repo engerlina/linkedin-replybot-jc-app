@@ -84,7 +84,9 @@
 
   // Scan for comments and inject buttons
   async function scanForComments() {
-    const comments = document.querySelectorAll('.comments-comment-entity, .comments-thread-entity');
+    // Only select actual comment items, not thread wrappers
+    // Use more specific selectors to avoid duplicates
+    const comments = document.querySelectorAll('.comments-comment-item, .comments-comment-entity:not(.comments-comment-entity .comments-comment-entity)');
     const newComments = [];
     const commenterUrls = [];
 
@@ -104,13 +106,17 @@
         }
       }
 
-      if (socialBar && !socialBar.querySelector('.reply-bot-btn-container')) {
-        const url = extractCommenterUrl(comment);
-        if (url) {
-          commenterUrls.push(url);
-        }
-        newComments.push({ comment, socialBar, url });
+      // Skip if no socialBar, already has buttons, or socialBar already processed
+      if (!socialBar || socialBar.querySelector('.reply-bot-btn-container') || socialBar.dataset.replyBotInjected) {
+        comment.dataset.replyBotProcessed = 'true'; // Mark anyway to avoid re-checking
+        return;
       }
+
+      const url = extractCommenterUrl(comment);
+      if (url) {
+        commenterUrls.push(url);
+      }
+      newComments.push({ comment, socialBar, url });
     });
 
     // Batch check leads if we have new comments and enough time has passed
@@ -137,6 +143,7 @@
     // Second pass: inject buttons with lead status
     newComments.forEach(({ comment, socialBar, url }) => {
       comment.dataset.replyBotProcessed = 'true';
+      socialBar.dataset.replyBotInjected = 'true'; // Mark socialBar to prevent duplicates
       const isExistingLead = url && existingLeadsCache[url];
       injectButton(comment, socialBar, isExistingLead);
     });
@@ -144,6 +151,11 @@
 
   // Inject the AI Reply button
   function injectButton(comment, socialBar, existingLead = null) {
+    // Final safeguard: don't inject if buttons already exist
+    if (socialBar.querySelector('.reply-bot-btn-container')) {
+      return;
+    }
+
     const container = document.createElement('div');
     container.className = 'reply-bot-btn-container';
 
