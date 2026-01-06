@@ -66,6 +66,194 @@ async def delete_lead(lead_id: str, _=Depends(get_current_user)):
     return {"success": True}
 
 
+@router.post("/{lead_id}/check-connection")
+async def check_lead_connection(lead_id: str, _=Depends(get_current_user)):
+    """Manually check and update connection status for a single lead"""
+    from datetime import datetime
+    from app.services.linkedapi.client import LinkedAPIClient, LinkedAPIError
+
+    lead = await prisma.lead.find_unique(
+        where={"id": lead_id},
+        include={"account": True, "post": True}
+    )
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+
+    if not lead.account or not lead.account.identificationToken:
+        raise HTTPException(status_code=400, detail="Account missing identification token")
+
+    try:
+        client = await LinkedAPIClient.create(lead.account.identificationToken)
+        status = await client.check_connection(lead.linkedInUrl)
+
+        # Update lead with new status
+        update_data = {"connectionStatus": status}
+        if status == "connected":
+            update_data["connectedAt"] = datetime.utcnow()
+
+        updated_lead = await prisma.lead.update(
+            where={"id": lead_id},
+            data=update_data,
+            include={"account": True, "post": True}
+        )
+
+        return {
+            "success": True,
+            "connectionStatus": status,
+            "lead": updated_lead
+        }
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"LinkedAPI error: {str(e)}")
+
+
+@router.post("/{lead_id}/send-connection")
+async def send_connection_request(lead_id: str, _=Depends(get_current_user)):
+    """Manually send a connection request to a lead"""
+    from datetime import datetime
+    from app.services.linkedapi.client import LinkedAPIClient
+
+    lead = await prisma.lead.find_unique(
+        where={"id": lead_id},
+        include={"account": True, "post": True}
+    )
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+
+    if not lead.account or not lead.account.identificationToken:
+        raise HTTPException(status_code=400, detail="Account missing identification token")
+
+    if lead.connectionStatus == "connected":
+        raise HTTPException(status_code=400, detail="Already connected to this lead")
+
+    try:
+        client = await LinkedAPIClient.create(lead.account.identificationToken)
+
+        # Generate connection note
+        note = f"Hi {lead.name.split()[0]}! Saw your comment and would love to connect."
+
+        success = await client.send_connection_request(lead.linkedInUrl, note)
+
+        if success:
+            updated_lead = await prisma.lead.update(
+                where={"id": lead_id},
+                data={
+                    "connectionStatus": "pending",
+                    "connectionSentAt": datetime.utcnow()
+                },
+                include={"account": True, "post": True}
+            )
+            return {
+                "success": True,
+                "message": "Connection request sent",
+                "lead": updated_lead
+            }
+        else:
+            raise HTTPException(status_code=500, detail="Failed to send connection request")
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"LinkedAPI error: {str(e)}")
+
+
+@router.post("/{lead_id}/send-dm")
+async def send_dm_to_lead_manual(lead_id: str, _=Depends(get_current_user)):
+    """Manually send DM to a connected lead"""
+    from datetime import datetime
+    from app.services.linkedapi.client import LinkedAPIClient
+
+    lead = await prisma.lead.find_unique(
+        where={"id": lead_id},
+        include={"account": True, "post": True}
+    )
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+
+    if not lead.account or not lead.account.identificationToken:
+        raise HTTPException(status_code=400, detail="Account missing identification token")
+
+    if lead.connectionStatus != "connected":
+        raise HTTPException(status_code=400, detail=f"Cannot DM - lead is {lead.connectionStatus}, not connected")
+
+    # Get message from pending DM or post CTA
+    pending_dm = await prisma.pendingdm.find_first(
+        where={"leadId": lead_id, "status": "pending"}
+    )
+
+    message = None
+    if pending_dm:
+        message = pending_dm.editedText or pending_dm.message
+    elif lead.post and lead.post.ctaMessage:
+        message = lead.post.ctaMessage
+    else:
+        # Get default template
+        settings = await prisma.settings.find_first(where={"id": "global"})
+        if settings and settings.defaultDmTemplate:
+            message = settings.defaultDmTemplate
+
+    if not message:
+        raise HTTPException(status_code=400, detail="No DM message configured")
+
+    try:
+        client = await LinkedAPIClient.create(lead.account.identificationToken)
+        success = await client.send_message(lead.linkedInUrl, message)
+
+        if success:
+            # Update pending DM if exists
+            if pending_dm:
+                await prisma.pendingdm.update(
+                    where={"id": pending_dm.id},
+                    data={"status": "sent", "sentAt": datetime.utcnow()}
+                )
+
+            updated_lead = await prisma.lead.update(
+                where={"id": lead_id},
+                data={
+                    "dmStatus": "sent",
+                    "dmSentAt": datetime.utcnow(),
+                    "dmText": message
+                },
+                include={"account": True, "post": True}
+            )
+            return {
+                "success": True,
+                "message": "DM sent successfully",
+                "lead": updated_lead
+            }
+        else:
+            raise HTTPException(status_code=500, detail="Failed to send DM")
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"LinkedAPI error: {str(e)}")
+
+
+@router.post("/{lead_id}/mark-sent")
+async def mark_dm_as_sent(lead_id: str, _=Depends(get_current_user)):
+    """Manually mark DM as sent (for when you sent it manually on LinkedIn)"""
+    from datetime import datetime
+
+    lead = await prisma.lead.find_unique(where={"id": lead_id})
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+
+    # Update any pending DMs
+    await prisma.pendingdm.update_many(
+        where={"leadId": lead_id, "status": "pending"},
+        data={"status": "sent", "sentAt": datetime.utcnow()}
+    )
+
+    updated_lead = await prisma.lead.update(
+        where={"id": lead_id},
+        data={
+            "dmStatus": "sent",
+            "dmSentAt": datetime.utcnow()
+        },
+        include={"account": True, "post": True}
+    )
+
+    return {
+        "success": True,
+        "message": "Marked as sent",
+        "lead": updated_lead
+    }
+
+
 @router.get("/stats/summary")
 async def get_lead_stats(accountId: Optional[str] = None, _=Depends(get_current_user)):
     where = {}
