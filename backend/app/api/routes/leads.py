@@ -191,6 +191,10 @@ async def send_dm_to_lead_manual(lead_id: str, _=Depends(get_current_user)):
     if not message:
         raise HTTPException(status_code=400, detail="No DM message configured")
 
+    # Replace {name} placeholder with lead's first name
+    first_name = lead.name.split()[0] if lead.name else "there"
+    message = message.replace("{name}", first_name)
+
     try:
         client = await LinkedAPIClient.create(lead.account.identificationToken)
         success = await client.send_message(lead.linkedInUrl, message)

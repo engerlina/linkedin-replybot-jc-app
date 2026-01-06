@@ -481,6 +481,7 @@ export interface Settings {
   connectionCheckMins: number;
   replyBotEnabled: boolean;
   commentBotEnabled: boolean;
+  defaultDmTemplate: string | null;  // Default DM message for leads
   updatedAt: string;
 }
 

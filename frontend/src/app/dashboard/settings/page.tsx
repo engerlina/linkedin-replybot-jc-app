@@ -213,6 +213,28 @@ export default function SettingsPage() {
           </div>
         )}
 
+        {/* DM Templates */}
+        {settings && (
+          <div className="bg-gray-800 rounded-lg p-6">
+            <h2 className="text-lg font-semibold text-white mb-4">DM Templates</h2>
+            <div>
+              <label className="block text-gray-300 mb-1">Default DM Message</label>
+              <textarea
+                value={settings.defaultDmTemplate || ''}
+                onChange={(e) =>
+                  setSettings({ ...settings, defaultDmTemplate: e.target.value })
+                }
+                className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white h-32"
+                placeholder="Hi {name}! Thanks for engaging with my post. I'd love to share more about..."
+              />
+              <p className="text-gray-500 text-xs mt-1">
+                This message will be sent to leads when you trigger the DM flow.
+                Use {'{name}'} to insert the lead&apos;s first name.
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* Rate Limits */}
         {settings && (
           <div className="bg-gray-800 rounded-lg p-6">
