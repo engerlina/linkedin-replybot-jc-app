@@ -29,6 +29,20 @@ class Settings(BaseSettings):
             missing.append("ADMIN_PASSWORD")
         return missing
 
+    def get_cors_origins(self) -> list[str]:
+        """Get list of allowed CORS origins"""
+        origins = [
+            "http://localhost:3000",
+            "http://localhost:3001",
+        ]
+        # Add FRONTEND_URL (can be comma-separated for multiple URLs)
+        if self.FRONTEND_URL:
+            for url in self.FRONTEND_URL.split(","):
+                url = url.strip()
+                if url and url not in origins:
+                    origins.append(url)
+        return origins
+
 
 # Initialize settings - this will always succeed now
 settings = Settings()
