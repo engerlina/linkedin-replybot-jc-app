@@ -90,14 +90,31 @@ class LinkedInDirectClient:
         return client
 
     def _get_headers(self) -> dict:
-        """Build headers for LinkedIn API requests (Taplio pattern)"""
+        """Build headers for LinkedIn API requests (based on browser patterns)"""
+        import json
+        import base64
+
+        # X-Li-Track header used by LinkedIn for analytics
+        x_li_track = json.dumps({
+            "clientVersion": "1.14.2584",
+            "mpVersion": "1.14.2584",
+            "osName": "web",
+            "timezoneOffset": 0,
+            "timezone": "America/Los_Angeles",
+            "deviceFormFactor": "DESKTOP",
+            "mpName": "voyager-web"
+        })
+
         return {
-            "cookie": f"li_at={self.li_at};JSESSIONID={self.jsession_id}",
+            "cookie": f"li_at={self.li_at}; JSESSIONID={self.jsession_id}",
             "csrf-token": self.csrf_token,
             "user-agent": self.user_agent,
             "accept": "application/vnd.linkedin.normalized+json+2.1",
             "accept-language": "en-US,en;q=0.9",
+            "content-type": "application/json; charset=UTF-8",
             "x-li-lang": "en_US",
+            "x-li-page-instance": "urn:li:page:d_flagship3_profile_view_base;",
+            "x-li-track": x_li_track,
             "x-restli-protocol-version": "2.0.0",
         }
 
@@ -133,8 +150,20 @@ class LinkedInDirectClient:
                 elif response.status_code == 429:
                     raise LinkedInRateLimitError("LinkedIn rate limit exceeded - try again later")
                 elif response.status_code >= 400:
-                    error_text = response.text[:500] if response.text else "Unknown error"
-                    raise LinkedInAPIError(f"API error {response.status_code}: {error_text}")
+                    error_text = response.text[:1000] if response.text else "Unknown error"
+                    logger.error(f"LinkedIn API error {response.status_code} on {method} {endpoint}: {error_text}")
+
+                    # Try to parse JSON error for better message
+                    try:
+                        error_json = response.json()
+                        if "message" in error_json:
+                            error_text = error_json["message"]
+                        elif "status" in error_json:
+                            error_text = f"{error_json.get('status', 'Unknown')}: {error_json.get('message', error_text)}"
+                    except Exception:
+                        pass
+
+                    raise LinkedInAPIError(f"{response.status_code}: {error_text}")
 
                 # Update last used timestamp
                 await self._update_last_used()
@@ -621,7 +650,10 @@ class LinkedInDirectClient:
 
     async def send_connection_request(self, person_url: str, note: Optional[str] = None) -> bool:
         """Send a connection request to a person"""
+        import uuid
+
         public_id = self._extract_public_id(person_url)
+        last_error = None
 
         try:
             # Get the member URN via dash profiles
@@ -629,18 +661,43 @@ class LinkedInDirectClient:
 
             if not member_urn:
                 logger.error(f"Could not get member URN for {public_id}. Cannot send connection request.")
-                return False
+                raise LinkedInAPIError(f"Could not get member URN for {public_id}")
 
             logger.info(f"Sending connection request to {public_id} using URN: {member_urn}")
 
-            # Method 1: Try with fsd_profile URN (newer format)
+            # Extract member ID from URN for different formats
+            member_id = member_urn.split(":")[-1] if ":" in member_urn else member_urn
+            tracking_id = str(uuid.uuid4())
+
+            # Method 1: verifyQuotaAndConnect action (newer LinkedIn API)
+            try:
+                payload = {
+                    "inviteeProfileUrn": member_urn,
+                    "trackingId": tracking_id
+                }
+                if note:
+                    payload["customMessage"] = note[:300]
+
+                await self._request(
+                    "POST",
+                    "/voyagerRelationshipsDashMemberRelationships?action=verifyQuotaAndConnect",
+                    json_data=payload
+                )
+                logger.info(f"Sent connection request to {public_id} via verifyQuotaAndConnect")
+                return True
+            except LinkedInAPIError as e:
+                last_error = str(e)
+                logger.warning(f"verifyQuotaAndConnect failed: {e}")
+
+            # Method 2: normInvitations with InviteeProfile wrapper (fsd_profile URN)
             try:
                 payload = {
                     "invitee": {
                         "com.linkedin.voyager.growth.invitation.InviteeProfile": {
                             "profileUrn": member_urn
                         }
-                    }
+                    },
+                    "trackingId": tracking_id
                 }
                 if note:
                     payload["message"] = note[:300]
@@ -650,16 +707,42 @@ class LinkedInDirectClient:
                     "/growth/normInvitations",
                     json_data=payload
                 )
-                logger.info(f"Sent connection request to {public_id} via normInvitations")
+                logger.info(f"Sent connection request to {public_id} via normInvitations (fsd_profile)")
                 return True
             except LinkedInAPIError as e:
-                logger.warning(f"normInvitations failed with fsd_profile: {e}")
+                last_error = str(e)
+                logger.warning(f"normInvitations with fsd_profile failed: {e}")
 
-            # Method 2: Try voyagerRelationshipsDashMemberRelationships
+            # Method 3: normInvitations with InviteeMember wrapper (member ID)
+            try:
+                payload = {
+                    "invitee": {
+                        "com.linkedin.voyager.growth.invitation.InviteeMember": {
+                            "memberId": member_id
+                        }
+                    },
+                    "trackingId": tracking_id
+                }
+                if note:
+                    payload["message"] = note[:300]
+
+                await self._request(
+                    "POST",
+                    "/growth/normInvitations",
+                    json_data=payload
+                )
+                logger.info(f"Sent connection request to {public_id} via normInvitations (member ID)")
+                return True
+            except LinkedInAPIError as e:
+                last_error = str(e)
+                logger.warning(f"normInvitations with member ID failed: {e}")
+
+            # Method 4: voyagerRelationshipsDashMemberRelationships action=connect
             try:
                 payload = {
                     "inviteeProfileUrn": member_urn,
-                    "invitationType": "CONNECTION"
+                    "invitationType": "CONNECTION",
+                    "trackingId": tracking_id
                 }
                 if note:
                     payload["customMessage"] = note[:300]
@@ -669,12 +752,13 @@ class LinkedInDirectClient:
                     "/voyagerRelationshipsDashMemberRelationships?action=connect",
                     json_data=payload
                 )
-                logger.info(f"Sent connection request to {public_id} via voyagerRelationshipsDash")
+                logger.info(f"Sent connection request to {public_id} via voyagerRelationshipsDash connect")
                 return True
             except LinkedInAPIError as e:
-                logger.warning(f"voyagerRelationshipsDash failed: {e}")
+                last_error = str(e)
+                logger.warning(f"voyagerRelationshipsDash connect failed: {e}")
 
-            # Method 3: Try with fs_miniProfile URN format
+            # Method 5: Try with fs_miniProfile URN format
             try:
                 mini_profile_urn = member_urn.replace("fsd_profile", "fs_miniProfile")
                 payload = {
@@ -682,7 +766,8 @@ class LinkedInDirectClient:
                         "com.linkedin.voyager.growth.invitation.InviteeProfile": {
                             "profileUrn": mini_profile_urn
                         }
-                    }
+                    },
+                    "trackingId": tracking_id
                 }
                 if note:
                     payload["message"] = note[:300]
@@ -695,14 +780,17 @@ class LinkedInDirectClient:
                 logger.info(f"Sent connection request to {public_id} via fs_miniProfile")
                 return True
             except LinkedInAPIError as e:
-                logger.warning(f"normInvitations failed with fs_miniProfile: {e}")
+                last_error = str(e)
+                logger.warning(f"normInvitations with fs_miniProfile failed: {e}")
 
-            # Method 4: Try relationships/invitation endpoint
+            # Method 6: Legacy relationships/invitation endpoint
             try:
                 payload = {
                     "inviteeUrn": member_urn,
-                    "message": note[:300] if note else ""
+                    "trackingId": tracking_id
                 }
+                if note:
+                    payload["message"] = note[:300]
 
                 await self._request(
                     "POST",
@@ -712,12 +800,15 @@ class LinkedInDirectClient:
                 logger.info(f"Sent connection request to {public_id} via relationships/invitation")
                 return True
             except LinkedInAPIError as e:
+                last_error = str(e)
                 logger.error(f"All connection request methods failed. Last error: {e}")
-                return False
+
+            # All methods failed - raise with detailed error
+            raise LinkedInAPIError(f"All connection methods failed for {public_id}. Last error: {last_error}")
 
         except LinkedInAPIError as e:
             logger.error(f"Failed to send connection request: {e}")
-            return False
+            raise  # Re-raise to propagate the error message
 
     async def send_message(self, person_url: str, text: str) -> bool:
         """Send a direct message to a connected person"""

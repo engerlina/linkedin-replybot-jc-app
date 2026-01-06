@@ -203,10 +203,13 @@ async def send_connection_request(lead_id: str, _=Depends(get_current_user)):
         )
 
     try:
+        from app.services.linkedin.client import LinkedInAPIError
+
         client = await LinkedInDirectClient.create(lead.account.id)
 
         # Generate connection note
-        note = f"Hi {lead.name.split()[0]}! Saw your comment and would love to connect."
+        first_name = lead.name.split()[0] if lead.name else "there"
+        note = f"Hi {first_name}! Saw your comment and would love to connect."
 
         success = await client.send_connection_request(lead.linkedInUrl, note)
 
@@ -225,11 +228,16 @@ async def send_connection_request(lead_id: str, _=Depends(get_current_user)):
                 "lead": updated_lead
             }
         else:
-            raise HTTPException(status_code=500, detail="Failed to send connection request")
+            raise HTTPException(status_code=500, detail="Failed to send connection request - unknown error")
     except LinkedInAuthError as e:
         raise HTTPException(status_code=401, detail=f"LinkedIn auth error: {str(e)}")
-    except Exception as e:
+    except LinkedInAPIError as e:
+        # Propagate the detailed error message from LinkedIn API
         raise HTTPException(status_code=502, detail=f"LinkedIn API error: {str(e)}")
+    except HTTPException:
+        raise  # Re-raise HTTPExceptions as-is
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Unexpected error: {str(e)}")
 
 
 @router.post("/{lead_id}/send-dm")
