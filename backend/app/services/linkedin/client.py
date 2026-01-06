@@ -648,8 +648,33 @@ class LinkedInDirectClient:
             logger.warning(f"Failed to get member URN: {e}")
             return None
 
+    def _parse_linkedin_status(self, response: dict) -> int:
+        """
+        Parse LinkedIn's internal status code from response.
+
+        LinkedIn returns internal status codes in the response body:
+        - 200: New invitation sent successfully
+        - 301: Invitation already pending (already sent before)
+        - 403: Cannot send invitation (blocked, restricted)
+        """
+        if not response:
+            return 200  # Empty response usually means success
+
+        # Try different response formats
+        if "data" in response and "status" in response["data"]:
+            return response["data"]["status"]
+        if "status" in response:
+            return response["status"]
+
+        return 200  # Default to success if no status found
+
     async def send_connection_request(self, person_url: str, note: Optional[str] = None) -> bool:
-        """Send a connection request to a person"""
+        """
+        Send a connection request to a person.
+
+        Returns True if request was sent OR if request was already pending.
+        The lead should be marked as 'pending' in either case.
+        """
         import uuid
 
         public_id = self._extract_public_id(person_url)
@@ -678,12 +703,18 @@ class LinkedInDirectClient:
                 if note:
                     payload["customMessage"] = note[:300]
 
-                await self._request(
+                response = await self._request(
                     "POST",
                     "/voyagerRelationshipsDashMemberRelationships?action=verifyQuotaAndConnect",
                     json_data=payload
                 )
-                logger.info(f"Sent connection request to {public_id} via verifyQuotaAndConnect")
+                status = self._parse_linkedin_status(response)
+                if status == 200:
+                    logger.info(f"NEW connection request sent to {public_id} via verifyQuotaAndConnect")
+                elif status == 301:
+                    logger.info(f"Connection request ALREADY PENDING for {public_id} (sent previously)")
+                else:
+                    logger.info(f"Connection request to {public_id} returned status {status}")
                 return True
             except LinkedInAPIError as e:
                 last_error = str(e)
@@ -702,12 +733,18 @@ class LinkedInDirectClient:
                 if note:
                     payload["message"] = note[:300]
 
-                await self._request(
+                response = await self._request(
                     "POST",
                     "/growth/normInvitations",
                     json_data=payload
                 )
-                logger.info(f"Sent connection request to {public_id} via normInvitations (fsd_profile)")
+                status = self._parse_linkedin_status(response)
+                if status == 200:
+                    logger.info(f"NEW connection request sent to {public_id} via normInvitations")
+                elif status == 301:
+                    logger.info(f"Connection request ALREADY PENDING for {public_id} (sent previously)")
+                else:
+                    logger.info(f"Connection request to {public_id} returned status {status}")
                 return True
             except LinkedInAPIError as e:
                 last_error = str(e)
@@ -726,12 +763,16 @@ class LinkedInDirectClient:
                 if note:
                     payload["message"] = note[:300]
 
-                await self._request(
+                response = await self._request(
                     "POST",
                     "/growth/normInvitations",
                     json_data=payload
                 )
-                logger.info(f"Sent connection request to {public_id} via normInvitations (member ID)")
+                status = self._parse_linkedin_status(response)
+                if status == 200:
+                    logger.info(f"NEW connection request sent to {public_id} via normInvitations (member ID)")
+                elif status == 301:
+                    logger.info(f"Connection request ALREADY PENDING for {public_id}")
                 return True
             except LinkedInAPIError as e:
                 last_error = str(e)
@@ -747,12 +788,16 @@ class LinkedInDirectClient:
                 if note:
                     payload["customMessage"] = note[:300]
 
-                await self._request(
+                response = await self._request(
                     "POST",
                     "/voyagerRelationshipsDashMemberRelationships?action=connect",
                     json_data=payload
                 )
-                logger.info(f"Sent connection request to {public_id} via voyagerRelationshipsDash connect")
+                status = self._parse_linkedin_status(response)
+                if status == 200:
+                    logger.info(f"NEW connection request sent to {public_id} via voyagerRelationshipsDash connect")
+                elif status == 301:
+                    logger.info(f"Connection request ALREADY PENDING for {public_id}")
                 return True
             except LinkedInAPIError as e:
                 last_error = str(e)
@@ -772,12 +817,16 @@ class LinkedInDirectClient:
                 if note:
                     payload["message"] = note[:300]
 
-                await self._request(
+                response = await self._request(
                     "POST",
                     "/growth/normInvitations",
                     json_data=payload
                 )
-                logger.info(f"Sent connection request to {public_id} via fs_miniProfile")
+                status = self._parse_linkedin_status(response)
+                if status == 200:
+                    logger.info(f"NEW connection request sent to {public_id} via fs_miniProfile")
+                elif status == 301:
+                    logger.info(f"Connection request ALREADY PENDING for {public_id}")
                 return True
             except LinkedInAPIError as e:
                 last_error = str(e)
@@ -792,12 +841,16 @@ class LinkedInDirectClient:
                 if note:
                     payload["message"] = note[:300]
 
-                await self._request(
+                response = await self._request(
                     "POST",
                     "/relationships/invitation",
                     json_data=payload
                 )
-                logger.info(f"Sent connection request to {public_id} via relationships/invitation")
+                status = self._parse_linkedin_status(response)
+                if status == 200:
+                    logger.info(f"NEW connection request sent to {public_id} via relationships/invitation")
+                elif status == 301:
+                    logger.info(f"Connection request ALREADY PENDING for {public_id}")
                 return True
             except LinkedInAPIError as e:
                 last_error = str(e)
