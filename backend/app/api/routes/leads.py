@@ -19,7 +19,7 @@ async def list_leads(
     accountId: Optional[str] = None,
     connectionStatus: Optional[str] = None,
     dmStatus: Optional[str] = None,
-    limit: int = 100,
+    limit: Optional[int] = None,  # No limit by default
     _=Depends(get_current_user)
 ):
     where = {}
@@ -30,12 +30,16 @@ async def list_leads(
     if dmStatus:
         where["dmStatus"] = dmStatus
 
-    leads = await prisma.lead.find_many(
-        where=where,
-        include={"account": True, "post": True},
-        order={"createdAt": "desc"},
-        take=limit
-    )
+    # Build query params - only include take if limit is specified
+    query_params = {
+        "where": where,
+        "include": {"account": True, "post": True},
+        "order": {"createdAt": "desc"},
+    }
+    if limit is not None:
+        query_params["take"] = limit
+
+    leads = await prisma.lead.find_many(**query_params)
     return leads
 
 
