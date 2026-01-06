@@ -1,8 +1,17 @@
-from datetime import datetime
+from datetime import datetime, date
 from app.db.client import prisma
 from app.services.linkedapi.client import LinkedAPIClient
 from app.services.reply_bot.processor import process_keyword_match
 from app.utils.humanizer import random_delay
+
+
+def safe_str(value) -> str:
+    """Convert any value to string, handling dates/datetimes"""
+    if value is None:
+        return ""
+    if isinstance(value, (datetime, date)):
+        return value.isoformat()
+    return str(value)
 
 
 async def poll_single_post(post) -> dict:
@@ -18,8 +27,8 @@ async def poll_single_post(post) -> dict:
         existing = await prisma.processedcomment.find_first(
             where={
                 "postId": post.id,
-                "commenterUrl": comment["commenterUrl"],
-                "commentText": comment.get("text") or ""
+                "commenterUrl": safe_str(comment.get("commenterUrl", "")),
+                "commentText": safe_str(comment.get("text")) or ""
             }
         )
         if existing:
@@ -37,11 +46,11 @@ async def poll_single_post(post) -> dict:
         processed = await prisma.processedcomment.create(
             data={
                 "postId": post.id,
-                "commenterUrl": comment["commenterUrl"],
-                "commenterName": comment["commenterName"],
-                "commenterHeadline": comment.get("commenterHeadline"),
-                "commentText": comment.get("text") or "",
-                "commentTime": comment.get("time", ""),
+                "commenterUrl": safe_str(comment.get("commenterUrl", "")),
+                "commenterName": safe_str(comment.get("commenterName", "")),
+                "commenterHeadline": safe_str(comment.get("commenterHeadline")) or None,
+                "commentText": safe_str(comment.get("text")) or "",
+                "commentTime": safe_str(comment.get("time")) or "",
                 "matchedKeyword": matched_keyword,
                 "wasMatch": matched_keyword is not None
             }
