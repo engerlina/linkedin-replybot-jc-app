@@ -242,22 +242,24 @@ export default function LeadsPage() {
   // Sort leads based on sortConfig
   const sortedLeads = [...leads].sort((a, b) => {
     const { key, direction } = sortConfig;
-    let aVal = a[key] ?? '';
-    let bVal = b[key] ?? '';
+    const aRaw = a[key] ?? '';
+    const bRaw = b[key] ?? '';
+
+    let comparison = 0;
 
     // Handle date sorting
     if (key === 'createdAt') {
-      aVal = new Date(aVal as string).getTime();
-      bVal = new Date(bVal as string).getTime();
+      const aTime = new Date(aRaw as string).getTime();
+      const bTime = new Date(bRaw as string).getTime();
+      comparison = aTime - bTime;
     } else {
       // String comparison (case insensitive)
-      aVal = String(aVal).toLowerCase();
-      bVal = String(bVal).toLowerCase();
+      const aStr = String(aRaw).toLowerCase();
+      const bStr = String(bRaw).toLowerCase();
+      comparison = aStr.localeCompare(bStr);
     }
 
-    if (aVal < bVal) return direction === 'asc' ? -1 : 1;
-    if (aVal > bVal) return direction === 'asc' ? 1 : -1;
-    return 0;
+    return direction === 'asc' ? comparison : -comparison;
   });
 
   if (loading) {
