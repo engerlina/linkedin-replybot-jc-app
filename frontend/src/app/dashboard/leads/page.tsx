@@ -55,7 +55,8 @@ export default function LeadsPage() {
       // Fetch all leads to calculate counts
       const allLeads = await api.getLeads({});
       const total = allLeads.length;
-      const connectionQueue = allLeads.filter(l => l.connectionStatus === 'not_connected' || l.connectionStatus === 'unknown').length;
+      // Backend uses camelCase: notConnected (not not_connected)
+      const connectionQueue = allLeads.filter(l => l.connectionStatus === 'notConnected' || l.connectionStatus === 'unknown').length;
       const dmQueue = allLeads.filter(l => l.connectionStatus === 'connected' && l.dmStatus !== 'sent').length;
       setCounts({ total, connectionQueue, dmQueue });
     } catch (err) {
@@ -196,9 +197,10 @@ export default function LeadsPage() {
     if (queue === 'all') {
       setFilter({ connectionStatus: '', dmStatus: '' });
     } else if (queue === 'connection') {
-      setFilter({ connectionStatus: 'not_connected', dmStatus: '' });
+      // Backend uses camelCase: notConnected
+      setFilter({ connectionStatus: 'notConnected', dmStatus: '' });
     } else if (queue === 'dm') {
-      setFilter({ connectionStatus: 'connected', dmStatus: 'not_sent' });
+      setFilter({ connectionStatus: 'connected', dmStatus: '' });
     }
   };
 
@@ -279,7 +281,8 @@ export default function LeadsPage() {
           <option value="">All Connection Status</option>
           <option value="connected">Connected</option>
           <option value="pending">Pending</option>
-          <option value="not_connected">Not Connected</option>
+          <option value="notConnected">Not Connected</option>
+          <option value="unknown">Unknown</option>
         </select>
         <select
           value={filter.dmStatus}
@@ -290,9 +293,7 @@ export default function LeadsPage() {
           className="px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white"
         >
           <option value="">All DM Status</option>
-          <option value="not_sent">Not Sent</option>
           <option value="sent">Sent</option>
-          <option value="replied">Replied</option>
         </select>
       </div>
 
@@ -612,13 +613,12 @@ function StatusBadge({ status, type }: { status: string; type: 'connection' | 'd
     connection: {
       connected: 'bg-green-600',
       pending: 'bg-yellow-600',
-      not_connected: 'bg-gray-600',
+      notConnected: 'bg-gray-600',
       unknown: 'bg-gray-600',
     },
     dm: {
       sent: 'bg-green-600',
       replied: 'bg-blue-600',
-      not_sent: 'bg-gray-600',
       queued: 'bg-yellow-600',
     },
   };
@@ -626,9 +626,15 @@ function StatusBadge({ status, type }: { status: string; type: 'connection' | 'd
   const colorMap = colors[type];
   const color = colorMap[status as keyof typeof colorMap] || 'bg-gray-600';
 
+  // Convert camelCase to display text (notConnected -> Not Connected)
+  const displayText = status
+    .replace(/([A-Z])/g, ' $1') // Add space before capital letters
+    .replace(/^./, str => str.toUpperCase()) // Capitalize first letter
+    .trim();
+
   return (
-    <span className={`${color} px-2 py-1 rounded text-xs text-white capitalize`}>
-      {status.replace(/_/g, ' ')}
+    <span className={`${color} px-2 py-1 rounded text-xs text-white`}>
+      {displayText || 'N/A'}
     </span>
   );
 }

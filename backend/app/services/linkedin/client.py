@@ -89,10 +89,10 @@ class LinkedInDirectClient:
         client.account_id = account_id
         return client
 
-    def _get_headers(self) -> dict:
+    def _get_headers(self, page_instance: str = None) -> dict:
         """Build headers for LinkedIn API requests (based on browser patterns)"""
         import json
-        import base64
+        import uuid
 
         # X-Li-Track header used by LinkedIn for analytics
         x_li_track = json.dumps({
@@ -105,6 +105,10 @@ class LinkedInDirectClient:
             "mpName": "voyager-web"
         })
 
+        # Generate a page instance ID if not provided
+        if not page_instance:
+            page_instance = f"urn:li:page:d_flagship3_profile_view_base;{uuid.uuid4()}"
+
         return {
             "cookie": f"li_at={self.li_at}; JSESSIONID={self.jsession_id}",
             "csrf-token": self.csrf_token,
@@ -113,9 +117,18 @@ class LinkedInDirectClient:
             "accept-language": "en-US,en;q=0.9",
             "content-type": "application/json; charset=UTF-8",
             "x-li-lang": "en_US",
-            "x-li-page-instance": "urn:li:page:d_flagship3_profile_view_base;",
+            "x-li-page-instance": page_instance,
             "x-li-track": x_li_track,
             "x-restli-protocol-version": "2.0.0",
+            # Additional browser-like headers
+            "origin": "https://www.linkedin.com",
+            "referer": "https://www.linkedin.com/",
+            "sec-ch-ua": '"Chromium";v="120", "Not(A:Brand";v="24", "Google Chrome";v="120"',
+            "sec-ch-ua-mobile": "?0",
+            "sec-ch-ua-platform": '"Windows"',
+            "sec-fetch-dest": "empty",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-site": "same-origin",
         }
 
     async def _request(
