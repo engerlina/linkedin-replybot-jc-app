@@ -608,58 +608,67 @@ class LinkedInDirectClient:
 
     async def _get_member_urn(self, public_id: str) -> str:
         """Get member URN via dash profiles endpoint (replaces deprecated /identity/profiles)"""
-        try:
-            profile_response = await self._request(
-                "GET",
-                "/identity/dash/profiles",
-                params={
-                    "q": "memberIdentity",
-                    "memberIdentity": public_id,
-                    "decorationId": "com.linkedin.voyager.dash.deco.identity.profile.TopCardSupplementary-85"
-                }
-            )
+        # Try multiple decorationIds in order of reliability
+        decoration_ids = [
+            "com.linkedin.voyager.dash.deco.identity.profile.FullProfileWithEntities-93",
+            "com.linkedin.voyager.dash.deco.identity.profile.TopCardSupplementary-85",
+            "com.linkedin.voyager.dash.deco.identity.profile.ProfileViewActionsV2-20"
+        ]
 
-            elements = profile_response.get("elements", [])
-            logger.info(f"Profile response elements count: {len(elements)}")
+        for decoration_id in decoration_ids:
+            try:
+                logger.info(f"Trying to get member URN with decorationId: {decoration_id}")
+                profile_response = await self._request(
+                    "GET",
+                    "/identity/dash/profiles",
+                    params={
+                        "q": "memberIdentity",
+                        "memberIdentity": public_id,
+                        "decorationId": decoration_id
+                    }
+                )
 
-            if elements:
-                profile = elements[0]
-                logger.info(f"Profile element keys: {list(profile.keys())}")
+                elements = profile_response.get("elements", [])
+                logger.info(f"Profile response elements count: {len(elements)}")
 
-                # Try entityUrn first
-                entity_urn = profile.get("entityUrn", "")
-                if entity_urn:
-                    logger.info(f"Got member URN from entityUrn: {entity_urn}")
-                    return entity_urn
+                if elements:
+                    profile = elements[0]
+                    logger.info(f"Profile element keys: {list(profile.keys())}")
 
-                # Try objectUrn
-                object_urn = profile.get("objectUrn", "")
-                if object_urn:
-                    logger.info(f"Got member URN from objectUrn: {object_urn}")
-                    return object_urn
+                    # Try entityUrn first
+                    entity_urn = profile.get("entityUrn", "")
+                    if entity_urn:
+                        logger.info(f"Got member URN from entityUrn: {entity_urn}")
+                        return entity_urn
 
-            # Check included entities for member URN
-            included = profile_response.get("included", [])
-            logger.info(f"Checking {len(included)} included entities for member URN")
+                    # Try objectUrn
+                    object_urn = profile.get("objectUrn", "")
+                    if object_urn:
+                        logger.info(f"Got member URN from objectUrn: {object_urn}")
+                        return object_urn
 
-            for item in included:
-                item_type = item.get("$type", "")
-                # Look for profile-related entities
-                if "Profile" in item_type or "Member" in item_type:
-                    urn = item.get("entityUrn") or item.get("objectUrn")
-                    if urn and ("fsd_profile" in urn or "member" in urn):
-                        logger.info(f"Got member URN from included: {urn}")
-                        return urn
+                # Check included entities for member URN
+                included = profile_response.get("included", [])
+                logger.info(f"Checking {len(included)} included entities for member URN")
 
-            # Last resort: try to get numeric member ID from the profile
-            # and construct the older urn:li:member format
-            logger.warning(f"Could not get URN from dash profiles for {public_id}")
-            logger.warning(f"Full profile response keys: {profile_response.keys()}")
-            return None  # Return None instead of broken constructed URN
+                for item in included:
+                    item_type = item.get("$type", "")
+                    # Look for profile-related entities
+                    if "Profile" in item_type or "Member" in item_type:
+                        urn = item.get("entityUrn") or item.get("objectUrn")
+                        if urn and ("fsd_profile" in urn or "member" in urn):
+                            logger.info(f"Got member URN from included: {urn}")
+                            return urn
 
-        except LinkedInAPIError as e:
-            logger.warning(f"Failed to get member URN: {e}")
-            return None
+                logger.warning(f"Could not get URN with decorationId {decoration_id}")
+
+            except LinkedInAPIError as e:
+                logger.warning(f"Failed to get member URN with {decoration_id}: {e}")
+                continue
+
+        # All decoration IDs failed
+        logger.error(f"Could not get member URN for {public_id} with any decorationId")
+        return None
 
     def _parse_linkedin_status(self, response: dict) -> int:
         """
