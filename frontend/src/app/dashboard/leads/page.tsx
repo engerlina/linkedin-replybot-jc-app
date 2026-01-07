@@ -237,7 +237,8 @@ export default function LeadsPage() {
       // Backend uses camelCase: notConnected
       setFilter({ connectionStatus: 'notConnected', dmStatus: '' });
     } else if (queue === 'dm') {
-      setFilter({ connectionStatus: 'connected', dmStatus: '' });
+      // Connected users who haven't been sent a DM yet
+      setFilter({ connectionStatus: 'connected', dmStatus: 'not_sent' });
     }
   };
 
@@ -361,6 +362,7 @@ export default function LeadsPage() {
           className="px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white"
         >
           <option value="">All DM Status</option>
+          <option value="not_sent">Not Sent</option>
           <option value="sent">Sent</option>
         </select>
       </div>

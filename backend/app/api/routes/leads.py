@@ -28,7 +28,11 @@ async def list_leads(
     if connectionStatus:
         where["connectionStatus"] = connectionStatus
     if dmStatus:
-        where["dmStatus"] = dmStatus
+        # Handle special "not_sent" filter for DM Queue
+        if dmStatus == "not_sent":
+            where["dmStatus"] = {"not": "sent"}
+        else:
+            where["dmStatus"] = dmStatus
 
     # Build query params - only include take if limit is specified
     query_params = {
@@ -703,7 +707,7 @@ async def browser_connect(lead_id: str, _=Depends(get_current_user)):
             result = await browser_service.send_connection_request(
                 lead.linkedInUrl,
                 note=note,
-                timeout=45000  # 45 second timeout
+                timeout=60000  # 60 second timeout for page load
             )
 
             logger.info(f"Browser connection result: {result}")

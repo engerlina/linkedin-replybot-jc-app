@@ -203,8 +203,9 @@ class LinkedInBrowserService:
         try:
             # Navigate to profile
             debug_log.append("Navigating to profile...")
-            await page.goto(profile_url, wait_until='networkidle', timeout=timeout)
-            await asyncio.sleep(2)  # Let page fully render
+            # Use domcontentloaded instead of networkidle - LinkedIn never truly becomes idle
+            await page.goto(profile_url, wait_until='domcontentloaded', timeout=timeout)
+            await asyncio.sleep(3)  # Let page fully render and JS execute
 
             # Check if we're logged in (look for sign-in prompt)
             if await page.locator('button:has-text("Sign in")').count() > 0:
@@ -289,12 +290,35 @@ class LinkedInBrowserService:
             # Click Connect button
             debug_log.append("Clicking Connect button...")
             await connect_button.click()
-            await asyncio.sleep(2)
 
-            # Handle the connection modal
-            # Option 1: "Add a note" modal appears
-            add_note_button = page.locator('button:has-text("Add a note"):visible').first
-            send_without_note = page.locator('button:has-text("Send without a note"):visible, button:has-text("Send"):visible').first
+            # Wait for the modal to appear (LinkedIn's "Add a note?" modal)
+            debug_log.append("Waiting for connection modal...")
+            try:
+                # Wait for the artdeco-modal with send-invite class
+                await page.wait_for_selector(
+                    'div.artdeco-modal.send-invite, div[role="dialog"]',
+                    timeout=10000
+                )
+                debug_log.append("Modal appeared!")
+                await asyncio.sleep(1)  # Let modal fully render
+            except Exception as e:
+                debug_log.append(f"Modal didn't appear within timeout: {e}")
+                # Check if connection was sent directly (some profiles skip the modal)
+                await asyncio.sleep(2)
+
+            # Handle the connection modal using exact LinkedIn selectors
+            # Try aria-label selectors first (most reliable based on actual HTML)
+            send_without_note = page.locator('button[aria-label="Send without a note"]').first
+            add_note_button = page.locator('button[aria-label="Add a note"]').first
+
+            # Fallback to text-based selectors
+            if await send_without_note.count() == 0:
+                send_without_note = page.locator('button:has-text("Send without a note")').first
+            if await add_note_button.count() == 0:
+                add_note_button = page.locator('button:has-text("Add a note")').first
+
+            debug_log.append(f"Send without note button found: {await send_without_note.count() > 0}")
+            debug_log.append(f"Add note button found: {await add_note_button.count() > 0}")
 
             if note and await add_note_button.count() > 0:
                 debug_log.append("Adding personalized note...")
@@ -302,33 +326,33 @@ class LinkedInBrowserService:
                 await asyncio.sleep(1)
 
                 # Find and fill the note textarea
-                note_input = page.locator('textarea[name="message"], textarea#custom-message, textarea[placeholder*="note"]').first
+                note_input = page.locator('textarea[name="message"], textarea#custom-message, textarea').first
                 if await note_input.count() > 0:
                     await note_input.fill(note[:300])
                     debug_log.append(f"Note added: {note[:50]}...")
 
-                # Click Send
-                send_button = page.locator('button:has-text("Send"):visible').last
-                await send_button.click()
-                debug_log.append("Clicked Send with note")
-
-            elif await send_without_note.count() > 0:
-                # Send without adding a note
-                debug_log.append("Sending without note...")
-                await send_without_note.click()
-                debug_log.append("Clicked Send")
-
-            else:
-                # Maybe direct send modal - look for any Send button
-                send_button = page.locator('button:has-text("Send"):visible, button[aria-label*="Send"]:visible').first
+                # Click Send button in the note modal
+                send_button = page.locator('button[aria-label="Send invitation"], button:has-text("Send")').last
                 if await send_button.count() > 0:
                     await send_button.click()
-                    debug_log.append("Clicked Send button")
-                else:
-                    # Check if the connection was sent directly
-                    debug_log.append("No modal appeared - connection may have been sent directly")
+                    debug_log.append("Clicked Send with note")
 
-            await asyncio.sleep(2)
+            elif await send_without_note.count() > 0:
+                # Send without adding a note - this is the primary path
+                debug_log.append("Clicking 'Send without a note'...")
+                await send_without_note.click()
+                debug_log.append("Clicked Send without note")
+
+            else:
+                # Try any visible Send button as fallback
+                send_button = page.locator('button:has-text("Send"):visible').first
+                if await send_button.count() > 0:
+                    await send_button.click()
+                    debug_log.append("Clicked generic Send button")
+                else:
+                    debug_log.append("No send button found - connection may have been sent directly")
+
+            await asyncio.sleep(3)  # Wait for action to complete
 
             # Verify the connection was sent
             # Check for success indicators
