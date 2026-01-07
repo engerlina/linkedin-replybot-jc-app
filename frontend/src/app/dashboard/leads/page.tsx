@@ -372,6 +372,7 @@ export default function LeadsPage() {
         <table className="w-full">
           <thead>
             <tr className="bg-gray-700 text-gray-300 text-sm">
+              <th className="px-4 py-3 text-left w-12">#</th>
               <SortableHeader
                 label="Name"
                 sortKey="name"
@@ -414,13 +415,14 @@ export default function LeadsPage() {
           <tbody>
             {sortedLeads.length === 0 ? (
               <tr>
-                <td colSpan={7} className="px-4 py-8 text-center text-gray-400">
+                <td colSpan={8} className="px-4 py-8 text-center text-gray-400">
                   No leads found
                 </td>
               </tr>
             ) : (
-              sortedLeads.map((lead) => (
+              sortedLeads.map((lead, index) => (
                 <tr key={lead.id} className="border-t border-gray-700 text-sm">
+                  <td className="px-4 py-3 text-gray-500 text-xs">{index + 1}</td>
                   <td className="px-4 py-3">
                     {lead.linkedInUrl ? (
                       <a

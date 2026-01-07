@@ -105,6 +105,9 @@ class LinkedInBrowserService:
                 java_script_enabled=True,
             )
 
+            # Set longer default timeout for LinkedIn's slow pages
+            self._context.set_default_timeout(60000)  # 60 seconds
+
             # Set LinkedIn cookies
             await self._context.add_cookies([
                 {
@@ -287,9 +290,16 @@ class LinkedInBrowserService:
                     "debug_log": debug_log
                 }
 
-            # Click Connect button
+            # Click Connect button with explicit timeout and force option
             debug_log.append("Clicking Connect button...")
-            await connect_button.click()
+            try:
+                # First try normal click with explicit timeout
+                await connect_button.click(timeout=15000)
+            except Exception as click_err:
+                debug_log.append(f"Normal click failed: {click_err}, trying force click...")
+                # If normal click times out, try force click (bypasses actionability checks)
+                await connect_button.click(force=True, timeout=10000)
+            debug_log.append("Connect button clicked!")
 
             # Wait for the modal to appear (LinkedIn's "Add a note?" modal)
             debug_log.append("Waiting for connection modal...")
@@ -400,6 +410,13 @@ class LinkedInBrowserService:
         except Exception as e:
             debug_log.append(f"Exception: {str(e)}")
             logger.error(f"Browser connection request failed: {e}")
+            # Try to capture screenshot for debugging
+            try:
+                screenshot_path = f"/tmp/linkedin_error_{public_id}.png"
+                await page.screenshot(path=screenshot_path)
+                debug_log.append(f"Error screenshot saved: {screenshot_path}")
+            except Exception as ss_err:
+                debug_log.append(f"Could not capture screenshot: {ss_err}")
             return {
                 "success": False,
                 "message": str(e),
