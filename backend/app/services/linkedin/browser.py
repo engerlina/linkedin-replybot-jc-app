@@ -210,13 +210,28 @@ class LinkedInBrowserService:
             await page.goto(profile_url, wait_until='domcontentloaded', timeout=timeout)
             await asyncio.sleep(3)  # Let page fully render and JS execute
 
+            # Log page info for debugging
+            page_title = await page.title()
+            page_url = page.url
+            debug_log.append(f"Page title: {page_title}")
+            debug_log.append(f"Page URL: {page_url}")
+
             # Check if we're logged in (look for sign-in prompt)
             if await page.locator('button:has-text("Sign in")').count() > 0:
                 debug_log.append("ERROR: Not logged in - cookies may be expired")
                 await self._mark_cookies_invalid("Browser session not authenticated")
                 raise LinkedInBrowserAuthError("Not logged in - cookies expired")
 
-            # Take screenshot for debugging
+            # Check for rate limiting or error pages
+            if "linkedin.com/checkpoint" in page_url:
+                debug_log.append("ERROR: LinkedIn checkpoint/verification required")
+                return {
+                    "success": False,
+                    "message": "LinkedIn security checkpoint - manual verification needed",
+                    "status": "blocked",
+                    "debug_log": debug_log
+                }
+
             debug_log.append("Page loaded, looking for Connect button...")
 
             # Look for Connect button - multiple possible selectors
@@ -283,6 +298,16 @@ class LinkedInBrowserService:
                 # Get page content for debugging
                 buttons = await page.locator('button').all_text_contents()
                 debug_log.append(f"Buttons on page: {buttons[:10]}")
+                # Also check for any visible elements
+                body_text = await page.locator('body').inner_text()
+                debug_log.append(f"Page body preview: {body_text[:500]}...")
+                # Capture screenshot
+                try:
+                    screenshot_path = f"/tmp/linkedin_noconnect_{public_id}.png"
+                    await page.screenshot(path=screenshot_path)
+                    debug_log.append(f"Screenshot saved: {screenshot_path}")
+                except Exception as ss_err:
+                    debug_log.append(f"Screenshot failed: {ss_err}")
                 return {
                     "success": False,
                     "message": "Could not find Connect button - may already be connected or pending",
