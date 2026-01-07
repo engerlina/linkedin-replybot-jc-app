@@ -208,7 +208,19 @@ class LinkedInBrowserService:
             debug_log.append("Navigating to profile...")
             # Use domcontentloaded instead of networkidle - LinkedIn never truly becomes idle
             await page.goto(profile_url, wait_until='domcontentloaded', timeout=timeout)
-            await asyncio.sleep(3)  # Let page fully render and JS execute
+            await asyncio.sleep(2)
+
+            # Wait for profile content to appear (indicates page has rendered)
+            debug_log.append("Waiting for page content to render...")
+            try:
+                # Wait for main profile section or any main content area
+                await page.wait_for_selector('main, section.artdeco-card, .scaffold-layout', timeout=15000)
+                debug_log.append("Main content found")
+            except Exception:
+                debug_log.append("Main content selector not found, continuing anyway...")
+
+            # Additional wait for JS rendering
+            await asyncio.sleep(5)  # Extra time for LinkedIn's heavy JS
 
             # Log page info for debugging
             page_title = await page.title()
@@ -300,7 +312,11 @@ class LinkedInBrowserService:
                 debug_log.append(f"Buttons on page: {buttons[:10]}")
                 # Also check for any visible elements
                 body_text = await page.locator('body').inner_text()
-                debug_log.append(f"Page body preview: {body_text[:500]}...")
+                debug_log.append(f"Page body text length: {len(body_text)}")
+                debug_log.append(f"Page body preview: {repr(body_text[:500])}...")
+                # Also get HTML structure
+                html_content = await page.content()
+                debug_log.append(f"HTML length: {len(html_content)}")
                 # Capture screenshot
                 try:
                     screenshot_path = f"/tmp/linkedin_noconnect_{public_id}.png"
