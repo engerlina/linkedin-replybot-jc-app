@@ -71,6 +71,11 @@ class LinkedInBrowserService:
                 "Please re-sync from the Chrome extension."
             )
 
+        # Log cookie info for debugging
+        logger.info(f"Creating browser service for account {account_id}")
+        logger.info(f"li_at length: {len(cookie.liAt)}, starts with: {cookie.liAt[:20]}...")
+        logger.info(f"jsessionId: {cookie.jsessionId[:50]}...")
+
         service = cls(
             li_at=cookie.liAt,
             jsession_id=cookie.jsessionId,
@@ -98,15 +103,40 @@ class LinkedInBrowserService:
         if not self._context:
             browser = await self._get_browser()
 
-            # Create context with cookies
+            # Create context with cookies and anti-detection settings
             self._context = await browser.new_context(
                 viewport={'width': 1280, 'height': 800},
                 user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                 java_script_enabled=True,
+                locale='en-US',
+                timezone_id='America/New_York',
+                extra_http_headers={
+                    'Accept-Language': 'en-US,en;q=0.9',
+                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                }
             )
 
             # Set longer default timeout for LinkedIn's slow pages
             self._context.set_default_timeout(60000)  # 60 seconds
+
+            # Add stealth script to remove automation signals
+            await self._context.add_init_script("""
+                // Override navigator.webdriver
+                Object.defineProperty(navigator, 'webdriver', {
+                    get: () => undefined,
+                });
+
+                // Override chrome runtime
+                window.chrome = { runtime: {} };
+
+                // Override permissions
+                const originalQuery = window.navigator.permissions.query;
+                window.navigator.permissions.query = (parameters) => (
+                    parameters.name === 'notifications' ?
+                        Promise.resolve({ state: Notification.permission }) :
+                        originalQuery(parameters)
+                );
+            """)
 
             # Set LinkedIn cookies
             await self._context.add_cookies([
@@ -121,6 +151,14 @@ class LinkedInBrowserService:
                 {
                     'name': 'JSESSIONID',
                     'value': self.jsession_id,
+                    'domain': '.linkedin.com',
+                    'path': '/',
+                    'secure': True,
+                    'httpOnly': True,
+                },
+                {
+                    'name': 'lang',
+                    'value': 'v=2&lang=en-us',
                     'domain': '.linkedin.com',
                     'path': '/',
                     'secure': True,
