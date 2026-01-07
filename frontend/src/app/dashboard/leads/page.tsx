@@ -22,6 +22,12 @@ export default function LeadsPage() {
     dmQueue: 0,          // connected + not_sent
   });
 
+  // Sorting state
+  const [sortConfig, setSortConfig] = useState<{
+    key: 'name' | 'headline' | 'sourceKeyword' | 'connectionStatus' | 'dmStatus' | 'createdAt';
+    direction: 'asc' | 'desc';
+  }>({ key: 'createdAt', direction: 'desc' });
+
   // DM Preview Modal state
   const [dmPreviewModal, setDmPreviewModal] = useState<{
     show: boolean;
@@ -123,6 +129,27 @@ export default function LeadsPage() {
     }
   };
 
+  const handleSendConnectionBrowser = async (leadId: string) => {
+    setActionLoading((prev) => ({ ...prev, [leadId]: 'browser-connect' }));
+    try {
+      const result = await api.sendLeadConnectionBrowser(leadId);
+      if (result.success) {
+        alert(`✅ ${result.message}`);
+      } else {
+        alert(`❌ ${result.message}\n\nDebug: ${result.debug_log?.join('\n') || 'No debug info'}`);
+      }
+      loadData();
+    } catch (err) {
+      alert('Failed to send browser connection: ' + (err as Error).message);
+    } finally {
+      setActionLoading((prev) => {
+        const next = { ...prev };
+        delete next[leadId];
+        return next;
+      });
+    }
+  };
+
   const handlePreviewDM = async (lead: Lead) => {
     setDmPreviewModal({
       show: true,
@@ -203,6 +230,35 @@ export default function LeadsPage() {
       setFilter({ connectionStatus: 'connected', dmStatus: '' });
     }
   };
+
+  // Sorting function
+  const handleSort = (key: typeof sortConfig.key) => {
+    setSortConfig((prev) => ({
+      key,
+      direction: prev.key === key && prev.direction === 'asc' ? 'desc' : 'asc',
+    }));
+  };
+
+  // Sort leads based on sortConfig
+  const sortedLeads = [...leads].sort((a, b) => {
+    const { key, direction } = sortConfig;
+    let aVal = a[key] ?? '';
+    let bVal = b[key] ?? '';
+
+    // Handle date sorting
+    if (key === 'createdAt') {
+      aVal = new Date(aVal as string).getTime();
+      bVal = new Date(bVal as string).getTime();
+    } else {
+      // String comparison (case insensitive)
+      aVal = String(aVal).toLowerCase();
+      bVal = String(bVal).toLowerCase();
+    }
+
+    if (aVal < bVal) return direction === 'asc' ? -1 : 1;
+    if (aVal > bVal) return direction === 'asc' ? 1 : -1;
+    return 0;
+  });
 
   if (loading) {
     return <div className="p-8 text-white">Loading...</div>;
@@ -302,24 +358,54 @@ export default function LeadsPage() {
         <table className="w-full">
           <thead>
             <tr className="bg-gray-700 text-gray-300 text-sm">
-              <th className="px-4 py-3 text-left">Name</th>
-              <th className="px-4 py-3 text-left">Headline</th>
-              <th className="px-4 py-3 text-left">Source</th>
-              <th className="px-4 py-3 text-left">Connection</th>
-              <th className="px-4 py-3 text-left">DM Status</th>
-              <th className="px-4 py-3 text-left">Created</th>
+              <SortableHeader
+                label="Name"
+                sortKey="name"
+                currentSort={sortConfig}
+                onSort={handleSort}
+              />
+              <SortableHeader
+                label="Headline"
+                sortKey="headline"
+                currentSort={sortConfig}
+                onSort={handleSort}
+              />
+              <SortableHeader
+                label="Source"
+                sortKey="sourceKeyword"
+                currentSort={sortConfig}
+                onSort={handleSort}
+              />
+              <SortableHeader
+                label="Connection"
+                sortKey="connectionStatus"
+                currentSort={sortConfig}
+                onSort={handleSort}
+              />
+              <SortableHeader
+                label="DM Status"
+                sortKey="dmStatus"
+                currentSort={sortConfig}
+                onSort={handleSort}
+              />
+              <SortableHeader
+                label="Created"
+                sortKey="createdAt"
+                currentSort={sortConfig}
+                onSort={handleSort}
+              />
               <th className="px-4 py-3 text-left">Actions</th>
             </tr>
           </thead>
           <tbody>
-            {leads.length === 0 ? (
+            {sortedLeads.length === 0 ? (
               <tr>
                 <td colSpan={7} className="px-4 py-8 text-center text-gray-400">
                   No leads found
                 </td>
               </tr>
             ) : (
-              leads.map((lead) => (
+              sortedLeads.map((lead) => (
                 <tr key={lead.id} className="border-t border-gray-700 text-sm">
                   <td className="px-4 py-3">
                     {lead.linkedInUrl ? (
@@ -372,18 +458,34 @@ export default function LeadsPage() {
                         )}
                       </button>
 
-                      {/* Send connection request */}
+                      {/* Send connection request (API) */}
                       {lead.connectionStatus !== 'connected' && (
                         <button
                           onClick={() => handleSendConnection(lead.id)}
                           disabled={!!actionLoading[lead.id] || !lead.linkedInUrl}
-                          title={lead.linkedInUrl ? "Send connection request" : "No LinkedIn URL - cannot send connection"}
+                          title={lead.linkedInUrl ? "Send connection (API)" : "No LinkedIn URL"}
                           className="p-1.5 rounded bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                         >
                           {actionLoading[lead.id] === 'connect' ? (
                             <LoadingSpinner />
                           ) : (
                             <ConnectIcon />
+                          )}
+                        </button>
+                      )}
+
+                      {/* Send connection request (Browser) */}
+                      {lead.connectionStatus !== 'connected' && (
+                        <button
+                          onClick={() => handleSendConnectionBrowser(lead.id)}
+                          disabled={!!actionLoading[lead.id] || !lead.linkedInUrl}
+                          title={lead.linkedInUrl ? "Send connection (Browser - more reliable)" : "No LinkedIn URL"}
+                          className="p-1.5 rounded bg-purple-600 hover:bg-purple-500 text-white disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                        >
+                          {actionLoading[lead.id] === 'browser-connect' ? (
+                            <LoadingSpinner />
+                          ) : (
+                            <BrowserIcon />
                           )}
                         </button>
                       )}
@@ -639,6 +741,45 @@ function StatusBadge({ status, type }: { status: string; type: 'connection' | 'd
   );
 }
 
+// Sort Icon Component
+function SortIcon({ active, direction }: { active: boolean; direction: 'asc' | 'desc' }) {
+  return (
+    <svg className={`h-3 w-3 ${active ? 'text-white' : 'text-gray-500'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      {direction === 'asc' ? (
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+      ) : (
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+      )}
+    </svg>
+  );
+}
+
+// Sortable Header Component
+function SortableHeader({
+  label,
+  sortKey,
+  currentSort,
+  onSort
+}: {
+  label: string;
+  sortKey: string;
+  currentSort: { key: string; direction: 'asc' | 'desc' };
+  onSort: (key: any) => void;
+}) {
+  const isActive = currentSort.key === sortKey;
+  return (
+    <th
+      className="px-4 py-3 text-left cursor-pointer hover:bg-gray-600 select-none transition-colors"
+      onClick={() => onSort(sortKey)}
+    >
+      <div className="flex items-center gap-1">
+        {label}
+        <SortIcon active={isActive} direction={isActive ? currentSort.direction : 'asc'} />
+      </div>
+    </th>
+  );
+}
+
 // Icon Components
 function LoadingSpinner() {
   return (
@@ -661,6 +802,14 @@ function ConnectIcon() {
   return (
     <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
+    </svg>
+  );
+}
+
+function BrowserIcon() {
+  return (
+    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" />
     </svg>
   );
 }

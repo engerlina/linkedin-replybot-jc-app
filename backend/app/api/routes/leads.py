@@ -649,6 +649,104 @@ async def debug_connection_request(lead_id: str, _=Depends(get_current_user)):
         }
 
 
+@router.post("/{lead_id}/browser-connect")
+async def browser_connect(lead_id: str, _=Depends(get_current_user)):
+    """
+    Send connection request using browser automation (Playwright).
+
+    This bypasses LinkedIn's API-level blocking by simulating real browser behavior.
+    Requires Playwright to be installed: pip install playwright && playwright install chromium
+    """
+    from datetime import datetime
+    import logging
+    from app.services.linkedin.browser import LinkedInBrowserService, LinkedInBrowserAuthError, LinkedInBrowserError
+
+    logger = logging.getLogger(__name__)
+
+    lead = await prisma.lead.find_unique(
+        where={"id": lead_id},
+        include={"account": {"include": {"cookies": True}}, "post": True}
+    )
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+
+    if not lead.account:
+        raise HTTPException(status_code=400, detail="Account not found")
+
+    if not lead.account.cookies or not lead.account.cookies.isValid:
+        raise HTTPException(
+            status_code=400,
+            detail="LinkedIn cookies not synced or expired. Please sync from Chrome extension."
+        )
+
+    if lead.connectionStatus == "connected":
+        raise HTTPException(status_code=400, detail="Already connected to this lead")
+
+    if not lead.linkedInUrl or not lead.linkedInUrl.strip():
+        raise HTTPException(
+            status_code=400,
+            detail="Lead has no LinkedIn URL. Cannot send connection request."
+        )
+
+    try:
+        # Use browser automation
+        async with await LinkedInBrowserService.create(
+            lead.account.id,
+            headless=True  # Run headless in production
+        ) as browser_service:
+            # Generate connection note
+            first_name = lead.name.split()[0] if lead.name else "there"
+            note = f"Hi {first_name}! Saw your comment and would love to connect."
+
+            logger.info(f"Sending browser-based connection request to {lead.name}")
+
+            result = await browser_service.send_connection_request(
+                lead.linkedInUrl,
+                note=note,
+                timeout=45000  # 45 second timeout
+            )
+
+            logger.info(f"Browser connection result: {result}")
+
+            if result["success"]:
+                # Update lead status
+                new_status = "pending"
+                if result.get("status") == "connected":
+                    new_status = "connected"
+
+                updated_lead = await prisma.lead.update(
+                    where={"id": lead_id},
+                    data={
+                        "connectionStatus": new_status,
+                        "connectionSentAt": datetime.utcnow()
+                    },
+                    include={"account": True, "post": True}
+                )
+
+                return {
+                    "success": True,
+                    "message": result["message"],
+                    "status": result.get("status", "pending"),
+                    "debug_log": result.get("debug_log", []),
+                    "lead": updated_lead
+                }
+            else:
+                return {
+                    "success": False,
+                    "message": result["message"],
+                    "status": result.get("status", "error"),
+                    "debug_log": result.get("debug_log", [])
+                }
+
+    except LinkedInBrowserAuthError as e:
+        raise HTTPException(status_code=401, detail=f"Browser auth error: {str(e)}")
+    except LinkedInBrowserError as e:
+        raise HTTPException(status_code=502, detail=f"Browser error: {str(e)}")
+    except Exception as e:
+        logger.error(f"Browser connection error: {e}")
+        raise HTTPException(status_code=500, detail=f"Unexpected error: {str(e)}")
+
+
 @router.get("/debug/sent-invitations")
 async def get_sent_invitations(accountId: Optional[str] = None, _=Depends(get_current_user)):
     """Fetch actual sent invitations from LinkedIn to verify requests were sent"""

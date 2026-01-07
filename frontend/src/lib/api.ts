@@ -264,6 +264,14 @@ class ApiClient {
     );
   }
 
+  async sendLeadConnectionBrowser(id: string) {
+    return this.request<LeadActionResult & { debug_log?: string[] }>(
+      `/api/leads/${id}/browser-connect`,
+      { method: 'POST' },
+      180000  // 3 minute timeout for browser automation
+    );
+  }
+
   async sendLeadDM(id: string) {
     return this.request<LeadActionResult>(
       `/api/leads/${id}/send-dm`,
