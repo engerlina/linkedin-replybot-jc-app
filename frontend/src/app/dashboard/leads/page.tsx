@@ -219,6 +219,16 @@ export default function LeadsPage() {
     }
   };
 
+  // Open URL in background tab (keeps focus on current page)
+  const openInBackground = (url: string) => {
+    const newWindow = window.open(url, '_blank');
+    // Immediately blur the new window and focus current window
+    if (newWindow) {
+      newWindow.blur();
+    }
+    window.focus();
+  };
+
   const setQueue = (queue: 'all' | 'connection' | 'dm') => {
     setActiveQueue(queue);
     if (queue === 'all') {
@@ -552,15 +562,13 @@ export default function LeadsPage() {
 
                       {/* Open LinkedIn Messages (deep link) - for connected users */}
                       {lead.linkedInUrl && lead.connectionStatus === 'connected' && (
-                        <a
-                          href={getLinkedInMessageUrl(lead.linkedInUrl)}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          title="Open LinkedIn Messages (Direct Message)"
+                        <button
+                          onClick={() => openInBackground(getLinkedInMessageUrl(lead.linkedInUrl))}
+                          title="Open LinkedIn Messages (in background tab)"
                           className="p-1.5 rounded bg-purple-600 hover:bg-purple-500 text-white transition-colors inline-flex items-center justify-center"
                         >
                           <ExternalMessageIcon />
-                        </a>
+                        </button>
                       )}
 
                       {/* Delete */}
@@ -593,16 +601,14 @@ export default function LeadsPage() {
                 const lead = leads.find(l => l.id === dmPreviewModal.leadId);
                 if (lead?.linkedInUrl && lead.connectionStatus === 'connected') {
                   return (
-                    <a
-                      href={getLinkedInMessageUrl(lead.linkedInUrl)}
-                      target="_blank"
-                      rel="noopener noreferrer"
+                    <button
+                      onClick={() => openInBackground(getLinkedInMessageUrl(lead.linkedInUrl))}
                       className="flex items-center gap-1 text-sm text-purple-400 hover:text-purple-300"
-                      title="Open LinkedIn Messages"
+                      title="Open LinkedIn Messages (in background tab)"
                     >
                       <ExternalLinkIcon />
                       Open in LinkedIn
-                    </a>
+                    </button>
                   );
                 }
                 return null;
